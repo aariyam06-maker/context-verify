@@ -114,13 +114,18 @@ export const startStage = internalAction({
       return;
     }
 
-    // Load owner videos for validation / metadata
-    const sourceVideo = await ctx.runQuery(internal.jobs.getVideoInternal, {
-      videoId: job.sourceVideoId,
-    });
-    const editedVideo = await ctx.runQuery(internal.jobs.getVideoInternal, {
-      videoId: job.editedVideoId,
-    });
+    // Load owner videos for validation / metadata (scan jobs have no edited).
+
+    const sourceVideo = job.sourceVideoId
+      ? await ctx.runQuery(internal.jobs.getVideoInternal, {
+          videoId: job.sourceVideoId,
+        })
+      : null;
+    const editedVideo = job.editedVideoId
+      ? await ctx.runQuery(internal.jobs.getVideoInternal, {
+          videoId: job.editedVideoId,
+        })
+      : null;
 
     try {
       switch (stage) {
@@ -185,14 +190,14 @@ export const startStage = internalAction({
             ? placeSegments(DEMO_SPEECH.edited, editedDuration)
             : [];
 
-          if (sourceHasAudio) {
+          if (sourceHasAudio && job.sourceVideoId) {
             await ctx.runMutation(internal.jobs.insertSegmentsInternal, {
               jobId: args.jobId,
               videoId: job.sourceVideoId,
               segments: sourceSegments,
             });
           }
-          if (editedHasAudio) {
+          if (editedHasAudio && job.editedVideoId) {
             await ctx.runMutation(internal.jobs.insertSegmentsInternal, {
               jobId: args.jobId,
               videoId: job.editedVideoId,

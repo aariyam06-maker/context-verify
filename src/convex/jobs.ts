@@ -44,6 +44,7 @@ export const createJob = mutation({
 
     const jobId = await ctx.db.insert("analysisJobs", {
       ownerId: userId,
+      mode: "compare",
       sourceVideoId: args.sourceVideoId,
       editedVideoId: args.editedVideoId,
       status: "QUEUED",
@@ -62,6 +63,237 @@ export const createJob = mutation({
 // Job queries (public, ownership-checked)
 // ---------------------------------------------------------------------------
 
+/**
+ * Create a single-video scan job (no source video required). The pipeline
+ * stages run client-side in the ScanWorkbench; this row tracks status/history.
+ */
+export const createScanJob = mutation({
+  args: { videoId: v.id("videos") },
+  handler: async (ctx, args): Promise<string> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Authentication required.");
+    const video = await ctx.db.get(args.videoId);
+    if (!video || video.ownerId !== userId) {
+      throw new Error("Video not found or not owned by you.");
+    }
+    if (video.validationStatus !== "uploaded") {
+      throw new Error("Video must pass validation before scanning.");
+    }
+
+    const jobId = await ctx.db.insert("analysisJobs", {
+      ownerId: userId,
+      mode: "scan",
+      sourceVideoId: args.videoId,
+      status: "QUEUED",
+      currentStage: "media_validation",
+      progress: 0,
+      pipelineVersion: "ctxtrace-engine v1.1.0 (ai-scan)",
+      createdAt: Date.now(),
+    });
+    return jobId;
+  },
+});
+
+/**
+ * Persist a completed client-side scan: findings rows + a report with the full
+ * machine-readable scan result. Called by the ScanWorkbench when the browser
+ * analysis finishes.
+ */
+export const finalizeScanReport = mutation({
+  args: {
+    jobId: v.id("analysisJobs"),
+    result: v.object({
+      analyzedFrames: v.number(),
+      sampledAt: v.array(v.number()),
+      aiScore: v.number(),
+      confidence: v.number(),
+      durationSeconds: v.number(),
+      components: v.array(
+        v.object({
+          id: v.string(),
+          label: v.string(),
+          score: v.number(),
+          confidence: v.number(),
+          summary: v.string(),
+        }),
+      ),
+      findings: v.array(
+        v.object({
+          componentId: v.string(),
+          label: v.string(),
+          severity: v.string(),
+          score: v.number(),
+          timestamp: v.number(),
+          frameValue: v.number(),
+          breachPct: v.number(),
+          explanation: v.string(),
+        }),
+      ),
+      meta: v.object({
+        width: v.number(),
+        height: v.number(),
+        fpsEstimate: v.optional(v.number()),
+        hasAudio: v.boolean(),
+      }),
+    }),
+    degraded: v.boolean(),
+    warnings: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Authentication required.");
+    const job = await ctx.db.get(args.jobId);
+    if (!job || job.ownerId !== userId) {
+      throw new Error("Job not found or not owned by you.");
+    }
+    if (job.mode !== "scan" && job.mode !== "mitigation") {
+      throw new Error("finalizeScanReport applies only to scan/mitigation jobs.");
+    }
+    if (args.result.analyzedFrames <= 0) {
+      throw new Error("Scan produced no analyzed frames.");
+    }
+
+    // Replace any prior scan findings/report (idempotent re-finalize).
+    const priorFindings = await ctx.db
+      .query("scanFindings")
+      .withIndex("by_job", (q) => q.eq("jobId", args.jobId))
+      .collect();
+    for (const f of priorFindings) await ctx.db.delete(f._id);
+    const priorReports = await ctx.db
+      .query("reports")
+      .withIndex("by_job", (q) => q.eq("jobId", args.jobId))
+      .collect();
+    for (const r of priorReports) await ctx.db.delete(r._id);
+
+    for (const f of args.result.findings) {
+      await ctx.db.insert("scanFindings", {
+        jobId: args.jobId,
+        componentId: f.componentId,
+        label: f.label,
+        severity: f.severity as "low" | "medium" | "high",
+        score: f.score,
+        timestamp: f.timestamp,
+        frameValue: f.frameValue,
+        breachPct: f.breachPct,
+        explanation: f.explanation,
+      });
+    }
+
+    const score = args.result.aiScore;
+    const interpretation = buildScanInterpretation(
+      score,
+      args.result.confidence,
+      args.result.findings.length,
+      args.degraded,
+    );
+
+    await ctx.db.insert("reports", {
+      jobId: args.jobId,
+      ownerId: userId,
+      score,
+      overallConfidence: args.result.confidence,
+      evidenceCoverage: Math.min(1, args.result.analyzedFrames / 24),
+      uncertainty: Math.max(0.1, 1 - args.result.confidence * 0.8),
+      interpretation,
+      pipelineVersion: job.pipelineVersion,
+      modelConfiguration:
+        `ai-scan v1; frames=${args.result.analyzedFrames}; ` +
+        `components=blockiness,temporal_flicker,saturation_dev,texture_uniformity,compression_noise,frequency_energy; ` +
+        `exec=browser(canvas+typed arrays)`,
+      degraded: args.degraded,
+      eventCount: args.result.findings.length,
+      mode: job.mode,
+      aiScore: score,
+      scanResult: args.result,
+      createdAt: Date.now(),
+    });
+
+    await ctx.db.patch(args.jobId, {
+      status: args.degraded ? "DEGRADED" : "COMPLETED",
+      currentStage: "report_generation",
+      progress: 100,
+      warnings: args.warnings,
+      startedAt: job.startedAt ?? Date.now(),
+      completedAt: Date.now(),
+    });
+  },
+});
+
+/** Attach a mitigation outcome (before/after + cleaned-video storage key). */
+export const saveMitigationResult = mutation({
+  args: {
+    jobId: v.id("analysisJobs"),
+    aiBefore: v.number(),
+    aiAfter: v.number(),
+    passesApplied: v.array(v.string()),
+    outputStorageKey: v.string(),
+    outputByteSize: v.number(),
+    outputDurationSeconds: v.number(),
+    outputWidth: v.number(),
+    outputHeight: v.number(),
+    deltas: v.array(
+      v.object({
+        id: v.string(),
+        label: v.string(),
+        before: v.number(),
+        after: v.number(),
+        changePct: v.number(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Authentication required.");
+    const job = await ctx.db.get(args.jobId);
+    if (!job || job.ownerId !== userId) {
+      throw new Error("Job not found or not owned by you.");
+    }
+
+    const report = await ctx.db
+      .query("reports")
+      .withIndex("by_job", (q) => q.eq("jobId", args.jobId))
+      .filter((q) => q.eq(q.field("ownerId"), userId))
+      .first();
+    if (!report) throw new Error("Run the AI scan before mitigation.");
+
+    await ctx.db.patch(report._id, {
+      mitigation: {
+        aiBefore: args.aiBefore,
+        aiAfter: args.aiAfter,
+        passesApplied: args.passesApplied,
+        outputByteSize: args.outputByteSize,
+        outputDurationSeconds: args.outputDurationSeconds,
+        outputStorageKey: args.outputStorageKey,
+        deltas: args.deltas,
+      },
+    });
+
+    await ctx.db.patch(args.jobId, {
+      mode: "mitigation",
+      currentStage: "report_generation",
+      status: args.aiAfter < args.aiBefore ? "COMPLETED" : "DEGRADED",
+      completedAt: Date.now(),
+    });
+
+    // Register the cleaned derivative as a "scan" video so History rows show it.
+    await ctx.db.insert("videos", {
+      ownerId: userId,
+      type: "scan",
+      filename: "cleaned-output.webm",
+      mimeType: "video/webm",
+      byteSize: args.outputByteSize,
+      storageKey: args.outputStorageKey,
+      durationSeconds: args.outputDurationSeconds,
+      width: args.outputWidth,
+      height: args.outputHeight,
+      hasAudio: true,
+      validationStatus: "uploaded",
+      validationMessage: "Mitigated derivative generated client-side.",
+      createdAt: Date.now(),
+    });
+  },
+});
+
 /** Job with joined video records — used by progress + report pages. */
 export const getJob = query({
   args: { jobId: v.id("analysisJobs") },
@@ -72,10 +304,16 @@ export const getJob = query({
     const job = await ctx.db.get(args.jobId);
     if (!job || job.ownerId !== userId) return null;
 
-    const sourceVideo = await ctx.db.get(job.sourceVideoId);
-    const editedVideo = await ctx.db.get(job.editedVideoId);
+    const sourceVideo = job.sourceVideoId
+      ? await ctx.db.get(job.sourceVideoId)
+      : null;
+    const editedVideo = job.editedVideoId
+      ? await ctx.db.get(job.editedVideoId)
+      : null;
 
-    const videoShape = (vid: typeof sourceVideo) =>
+    const videoShape = (
+      vid: { _id: string; filename: string; durationSeconds?: number; hasAudio?: boolean; byteSize: number; mimeType: string; storageKey?: string } | null,
+    ) =>
       vid
         ? {
             _id: vid._id,
@@ -90,6 +328,7 @@ export const getJob = query({
 
     return {
       _id: job._id,
+      mode: job.mode ?? "compare",
       status: job.status,
       currentStage: job.currentStage,
       progress: job.progress,
@@ -127,10 +366,15 @@ export const listJobs = query({
                 .withIndex("by_job", (q) => q.eq("jobId", job._id))
                 .first()
             : null;
-        const sourceVideo = await ctx.db.get(job.sourceVideoId);
-        const editedVideo = await ctx.db.get(job.editedVideoId);
+        const sourceVideo = job.sourceVideoId
+          ? await ctx.db.get(job.sourceVideoId)
+          : null;
+        const editedVideo = job.editedVideoId
+          ? await ctx.db.get(job.editedVideoId)
+          : null;
         return {
           _id: job._id,
+          mode: job.mode ?? "compare",
           status: job.status,
           currentStage: job.currentStage,
           progress: job.progress,
@@ -147,6 +391,9 @@ export const listJobs = query({
                 score: report.score,
                 overallConfidence: report.overallConfidence,
                 degraded: report.degraded,
+                mode: report.mode ?? "compare",
+                aiScore: report.aiScore,
+                mitigated: report.mitigation !== undefined,
               }
             : null,
         };
@@ -679,8 +926,12 @@ export const finalizeAnalysisInternal = internalMutation({
     }
     const score = Math.round(clamp01(1 - penalty) * 100);
 
-    const sourceVideo = await ctx.db.get(job.sourceVideoId);
-    const editedVideo = await ctx.db.get(job.editedVideoId);
+    const sourceVideo = job.sourceVideoId
+      ? await ctx.db.get(job.sourceVideoId)
+      : null;
+    const editedVideo = job.editedVideoId
+      ? await ctx.db.get(job.editedVideoId)
+      : null;
     const bothAudio =
       (sourceVideo?.hasAudio ?? false) && (editedVideo?.hasAudio ?? false);
     const evidenceCoverage = clamp01(
@@ -753,6 +1004,46 @@ export const finalizeAnalysisInternal = internalMutation({
   },
 });
 
+function buildScanInterpretation(
+  score: number,
+  confidence: number,
+  findingCount: number,
+  degraded: boolean,
+): string {
+  const parts: string[] = [];
+  if (findingCount === 0) {
+    parts.push(
+      "No component breached its calibrated threshold: the footage shows no measurable AI-generation or over-processing artifacts in this scan.",
+    );
+  } else if (score >= 70) {
+    parts.push(
+      `Multiple forensic components (${findingCount}) breach calibrated thresholds, consistent with AI-generated or heavily synthetic footage.`,
+    );
+  } else if (score >= 45) {
+    parts.push(
+      `${findingCount} component${findingCount === 1 ? "" : "s"} show artifact signatures in the gray zone — consistent with heavy compression, upscaling, or light generative post-processing.`,
+   );}
+  else {
+    parts.push(
+      `${findingCount} low-level component signature${findingCount === 1 ? "" : "s"} detected; overall artifacts are mild and could easily come from ordinary encoding.`,
+    );
+  }
+  if (confidence < 0.5) {
+    parts.push(
+      "Measurement confidence is reduced (short clip, low resolution, or missing audio); treat the score as indicative only.",
+    );
+  }
+  if (degraded) {
+    parts.push(
+      "One or more scan components could not be measured; the result rests on partial evidence.",
+    );
+  }
+  parts.push(
+    "This scan measures generation/processing artifacts, not the semantic truth of the content; scores are forensic indicators with stated uncertainty, never proof.",
+  );
+  return parts.join(" ");
+}
+
 function buildInterpretation(
   score: number,
   highCount: number,
@@ -799,3 +1090,6 @@ function clamp01(n: number): number {
 
 // Re-export for pipeline convenience (formatTimestamp used in evidence text).
 export { formatTimestamp };
+
+// Re-export engine helpers used by scan interpretation (kept for API parity).
+export { checkCaptionMismatch };

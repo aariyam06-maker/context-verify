@@ -12,7 +12,7 @@ const MAX_BYTES = 500 * 1024 * 1024; // 500 MB
 
 export const register = mutation({
   args: {
-    type: v.union(v.literal("source"), v.literal("edited")),
+    type: v.union(v.literal("source"), v.literal("edited"), v.literal("scan")),
     filename: v.string(),
     mimeType: v.string(),
     byteSize: v.number(),

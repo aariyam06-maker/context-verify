@@ -23,7 +23,7 @@ export type Role = Infer<typeof roleValidator>;
 // Domain enums
 // ---------------------------------------------------------------------------
 
-export const VIDEO_TYPES = ["source", "edited"] as const;
+export const VIDEO_TYPES = ["source", "edited", "scan"] as const;
 export const VIDEO_STATUSES = [
   "uploaded", // stored, metadata extracted, ready for analysis
   "invalid", // failed validation (corrupt, unsupported, too large)
@@ -36,6 +36,10 @@ export const JOB_STATUSES = [
   "COMPLETED",
   "FAILED",
 ] as const;
+
+/** Analysis modes. "scan" runs single-video AI-content forensics; "mitigation"
+ *  is a scan job that was escalated to AI-trace removal. */
+export const JOB_MODES = ["compare", "scan", "mitigation"] as const;
 
 export const PIPELINE_STAGES = [
   "media_validation",
@@ -108,8 +112,13 @@ const schema = defineSchema(
 
     analysisJobs: defineTable({
       ownerId: v.id("users"),
-      sourceVideoId: v.id("videos"),
-      editedVideoId: v.id("videos"),
+      // compare mode requires both; scan/mitigation jobs use sourceVideoId
+      // only (the single uploaded subject).
+      sourceVideoId: v.optional(v.id("videos")),
+      editedVideoId: v.optional(v.id("videos")),
+      mode: v.optional(
+        v.union(...JOB_MODES.map((m) => v.literal(m))),
+      ),
       status: v.union(...JOB_STATUSES.map((s) => v.literal(s))),
       currentStage: v.optional(
         v.union(...PIPELINE_STAGES.map((s) => v.literal(s))),
@@ -193,10 +202,22 @@ const schema = defineSchema(
       editedSegmentIds: v.optional(v.array(v.id("transcriptSegments"))),
     }).index("by_job_severity", ["jobId"]),
 
+    scanFindings: defineTable({
+      jobId: v.id("analysisJobs"),
+      componentId: v.string(),
+      label: v.string(),
+      severity: v.union(...SEVERITIES.map((s) => v.literal(s))),
+      score: v.number(), // 0..1 component AI-likeness
+      timestamp: v.number(), // most indicative frame (seconds)
+      frameValue: v.number(),
+      breachPct: v.number(),
+      explanation: v.string(),
+    }).index("by_job", ["jobId"]),
+
     reports: defineTable({
       jobId: v.id("analysisJobs"),
       ownerId: v.id("users"),
-      score: v.number(), // 0..100 Context Integrity Score
+      score: v.number(), // 0..100 Context Integrity Score (compare) or AI score mirror
       overallConfidence: v.number(), // 0..1
       evidenceCoverage: v.number(), // 0..1
       uncertainty: v.number(), // 0..1
@@ -205,6 +226,64 @@ const schema = defineSchema(
       modelConfiguration: v.string(),
       degraded: v.boolean(),
       eventCount: v.number(),
+      // Scan/mitigation mode extras (absent on compare reports).
+      mode: v.optional(v.string()),
+      aiScore: v.optional(v.number()), // 0..100 AI-content likelihood
+      scanResult: v.optional(
+        v.object({
+          analyzedFrames: v.number(),
+          sampledAt: v.array(v.number()),
+          aiScore: v.number(),
+          confidence: v.number(),
+          durationSeconds: v.number(),
+          components: v.array(
+            v.object({
+              id: v.string(),
+              label: v.string(),
+              score: v.number(),
+              confidence: v.number(),
+              summary: v.string(),
+            }),
+          ),
+          findings: v.array(
+            v.object({
+              componentId: v.string(),
+              label: v.string(),
+              severity: v.string(),
+              score: v.number(),
+              timestamp: v.number(),
+              frameValue: v.number(),
+              breachPct: v.number(),
+              explanation: v.string(),
+            }),
+          ),
+          meta: v.object({
+            width: v.number(),
+            height: v.number(),
+            fpsEstimate: v.optional(v.number()),
+            hasAudio: v.boolean(),
+          }),
+        }),
+      ),
+      mitigation: v.optional(
+        v.object({
+          aiBefore: v.number(),
+          aiAfter: v.number(),
+          passesApplied: v.array(v.string()),
+          outputByteSize: v.number(),
+          outputDurationSeconds: v.number(),
+          outputStorageKey: v.string(),
+          deltas: v.array(
+            v.object({
+              id: v.string(),
+              label: v.string(),
+              before: v.number(),
+              after: v.number(),
+              changePct: v.number(),
+            }),
+          ),
+        }),
+      ),
       createdAt: v.number(),
     }).index("by_job", ["jobId"]),
   },

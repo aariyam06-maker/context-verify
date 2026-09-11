@@ -33,8 +33,12 @@ export const adminOverview = query({
         .slice(0, 100)
         .map(async (job) => {
           const owner = await ctx.db.get(job.ownerId);
-          const sourceVideo = await ctx.db.get(job.sourceVideoId);
-          const editedVideo = await ctx.db.get(job.editedVideoId);
+          const sourceVideo = job.sourceVideoId
+            ? await ctx.db.get(job.sourceVideoId)
+            : null;
+          const editedVideo = job.editedVideoId
+            ? await ctx.db.get(job.editedVideoId)
+            : null;
           const report =
             job.status === "COMPLETED" || job.status === "DEGRADED"
               ? await ctx.db
