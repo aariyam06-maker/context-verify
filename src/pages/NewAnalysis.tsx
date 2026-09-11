@@ -47,61 +47,107 @@ export default function NewAnalysis() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [dragSlot, setDragSlot] = useState<Slot | null>(null);
+  const [attempted, setAttempted] = useState(false);
+  const [gateMessage, setGateMessage] = useState<string | null>(null);
+  // Guards against a slow validation overwriting a newer upload in the same slot.
+  const tokenRef = useRef<Record<Slot, number>>({ source: 0, edited: 0 });
 
   const setSlot = (slot: Slot, state: SlotState) =>
     setSlots((prev) => ({ ...prev, [slot]: state }));
 
   const handleFile = useCallback(
     async (slot: Slot, file: File) => {
+      const token = ++tokenRef.current[slot];
       setSlot(slot, { status: "validating", filename: file.name });
-      const result: LocalValidationResult = await validateAndStore(file);
-      if (!result.ok) {
+      try {
+        const result: LocalValidationResult = await validateAndStore(file);
+        if (token !== tokenRef.current[slot]) return;
+        if (!result.ok) {
+          setSlot(slot, {
+            status: "invalid",
+            filename: file.name,
+            error: result.error,
+          });
+          return;
+        }
+        const reg = await registerVideo({
+          type: slot,
+          filename: result.filename,
+          mimeType: result.mimeType,
+          byteSize: result.byteSize,
+          durationSeconds: result.durationSeconds,
+          width: result.width,
+          height: result.height,
+          hasAudio: result.hasAudio,
+          storageKey: result.storageKey,
+        });
+        if (token !== tokenRef.current[slot]) return;
+        if (!reg.ok) {
+          setSlot(slot, {
+            status: "invalid",
+            filename: file.name,
+            error: reg.reason,
+          });
+          return;
+        }
+        setSlot(slot, {
+          status: "valid",
+          videoId: reg.videoId,
+          storageKey: result.storageKey,
+          filename: result.filename,
+          byteSize: result.byteSize,
+          durationSeconds: result.durationSeconds,
+          width: result.width,
+          height: result.height,
+          hasAudio: result.hasAudio,
+        });
+      } catch (e) {
+        if (token !== tokenRef.current[slot]) return;
         setSlot(slot, {
           status: "invalid",
           filename: file.name,
-          error: result.error,
+          error:
+            e instanceof Error
+              ? e.message
+              : "Validation failed. Try a different file.",
         });
-        return;
       }
-      const reg = await registerVideo({
-        type: slot,
-        filename: result.filename,
-        mimeType: result.mimeType,
-        byteSize: result.byteSize,
-        durationSeconds: result.durationSeconds,
-        width: result.width,
-        height: result.height,
-        hasAudio: result.hasAudio,
-        storageKey: result.storageKey,
-      });
-      if (!reg.ok) {
-        setSlot(slot, {
-          status: "invalid",
-          filename: file.name,
-          error: reg.reason,
-        });
-        return;
-      }
-      setSlot(slot, {
-        status: "valid",
-        videoId: reg.videoId,
-        storageKey: result.storageKey,
-        filename: result.filename,
-        byteSize: result.byteSize,
-        durationSeconds: result.durationSeconds,
-        width: result.width,
-        height: result.height,
-        hasAudio: result.hasAudio,
-      });
     },
     [registerVideo],
   );
 
   const bothValid =
     slots.source.status === "valid" && slots.edited.status === "valid";
+  const readyCount =
+    (slots.source.status === "valid" ? 1 : 0) +
+    (slots.edited.status === "valid" ? 1 : 0);
+
+  const missingReason = (slot: Slot): string | null => {
+    const current = slots[slot];
+    const label = slot === "source" ? "Source" : "Edited";
+    if (current.status === "valid") return null;
+    if (current.status === "validating")
+      return `${label} video is still validating`;
+    if (current.status === "invalid")
+      return `Replace the invalid ${label.toLowerCase()} video`;
+    return `${label} video required`;
+  };
 
   const startAnalysis = async () => {
-    if (!bothValid) return;
+    setAttempted(true);
+    if (!bothValid) {
+      const problems = [
+        missingReason("source"),
+        missingReason("edited"),
+      ].filter((p): p is string => p !== null);
+      setGateMessage(
+        problems.length === 2
+          ? "Upload a source video and an edited video to start the analysis."
+          : problems.join(" · "),
+      );
+      return;
+    }
+    setGateMessage(null);
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -141,6 +187,7 @@ export default function NewAnalysis() {
           onFile={(f) => void handleFile("source", f)}
           onDragStateChange={(dragging) => setDragSlot(dragging ? "source" : null)}
           onRemove={() => setSlot("source", { status: "empty" })}
+          missing={attempted && slots.source.status !== "valid"}
         />
         <UploadPanel
           slot="edited"
@@ -151,6 +198,7 @@ export default function NewAnalysis() {
           onFile={(f) => void handleFile("edited", f)}
           onDragStateChange={(dragging) => setDragSlot(dragging ? "edited" : null)}
           onRemove={() => setSlot("edited", { status: "empty" })}
+          missing={attempted && slots.edited.status !== "valid"}
         />
       </div>
 
@@ -158,8 +206,17 @@ export default function NewAnalysis() {
       <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 border bg-secondary px-4 py-3">
         <span className="meta-label">Accepted: mp4 · mov · webm · mkv · avi · m4v</span>
         <span className="meta-label">Max 500 MB each</span>
+        <span className="meta-label">
+          <span className="text-foreground">{readyCount}/2</span> videos validated
+        </span>
         <span className="meta-label">Analysis starts only when both files validate</span>
       </div>
+
+      {gateMessage && !bothValid && (
+        <p className="mt-4 border border-[var(--trace-red)]/40 bg-[var(--trace-red-soft)] px-4 py-3 text-sm font-medium text-[var(--trace-red)]">
+          {gateMessage}
+        </p>
+      )}
 
       {submitError && (
         <p className="mt-4 border border-[var(--trace-red)]/40 bg-[var(--trace-red-soft)] px-4 py-3 text-sm text-[var(--trace-red)]">
@@ -174,7 +231,7 @@ export default function NewAnalysis() {
         <Button
           size="lg"
           className="h-12 px-8"
-          disabled={!bothValid || submitting}
+          disabled={submitting}
           onClick={() => void startAnalysis()}
         >
           {submitting ? (
@@ -201,6 +258,7 @@ function UploadPanel({
   onFile,
   onDragStateChange,
   onRemove,
+  missing,
 }: {
   slot: Slot;
   title: string;
@@ -210,6 +268,7 @@ function UploadPanel({
   onFile: (f: File) => void;
   onDragStateChange: (dragging: boolean) => void;
   onRemove: () => void;
+  missing: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -218,6 +277,7 @@ function UploadPanel({
       className={cn(
         "bg-card p-6 transition-colors",
         dragging && "bg-[var(--trace-blue-soft)]",
+        missing && "ring-1 ring-inset ring-[var(--trace-red)]",
       )}
       onDragOver={(e) => {
         e.preventDefault();
@@ -272,7 +332,10 @@ function UploadPanel({
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="mt-6 flex w-full flex-col items-center justify-center border border-dashed px-6 py-14 transition-colors hover:border-foreground/50 hover:bg-secondary"
+          className={cn(
+            "mt-6 flex w-full flex-col items-center justify-center border border-dashed px-6 py-14 transition-colors hover:border-foreground/50 hover:bg-secondary",
+            missing && "border-[var(--trace-red)]/60",
+          )}
         >
           <Upload className="size-8 text-muted-foreground" strokeWidth={1.5} />
           <span className="mt-4 text-sm font-medium tracking-tight">
