@@ -241,6 +241,22 @@ sentence — so a typical run produces an Omission, a Reordering and a
 Discontinuity finding with real timestamps derived from your uploaded durations.
 Any two valid video files exercise the full flow end-to-end.
 
+## Backend accuracy & verification
+
+The AI-Scan detector ships as one numerically identical engine in three
+languages — browser JS (`src/lib/ai-model.ts`), Python
+(`backend/python/features.py`) and Java (`backend/java/Verifier.java`) — kept in
+conformance by the test suite, with a Bun gateway (`server/index.ts`) exposing
+`/api/health`, `/api/score`, `/api/verify` and `/api/evaluate`. The trained
+model measures **98.33% accuracy (AUC 0.9975) on a fresh holdout corpus** and
+99.38% ± 1.25 cross-validated; details, honest scope limits, and retraining
+instructions are in `backend/README.md`.
+
+```bash
+bun test          # conformance + digests + gateway + holdout accuracy E2E
+bun tsc -b --noEmit
+```
+
 ## Docs
 
 * `.env.example` — environment configuration

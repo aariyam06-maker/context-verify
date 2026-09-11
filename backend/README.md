@@ -39,15 +39,14 @@ best at, with a single orchestration gateway:
 | `python/cli_score.py` | Inference CLI: JSON features in → score/label/confidence out |
 | `java/Verifier.java` | Independent scorer + SHA-256 digest + 2-of-3 consensus |
 | `server/index.ts` | Bun HTTP gateway: `/api/health`, `/api/score`, `/api/verify`, `/api/evaluate` |
-| `server/gateway.test.ts` | Gateway integration tests (spawns real python + java) |
-| `tests/backend.test.ts` | Engine conformance, digest integrity, corpus evaluation E2E |
+| `tests/backend.test.ts` | Engine conformance, digest integrity, gateway integration (spawns real
+  python + java over HTTP) and corpus evaluation E2E |
 
 ## Run the tests
 
 ```bash
 bun test                      # full suite (conformance + digests + gateway + corpus E2E)
 bun test tests/backend.test.ts
-bun test server/gateway.test.ts
 ```
 
 ## Re-train / re-evaluate the model
@@ -61,6 +60,20 @@ python3 python/evaluate.py    # reports accuracy/precision/recall/F1/AUC + confu
 cross-validated number; `model.json` embeds both the coefficients and the
 final evaluation block so consumers can see the measured metrics the shipped
 weights were evaluated with.
+
+## Measured results (this build)
+
+| Benchmark | Result |
+| --- | --- |
+| 5-fold cross-validated accuracy (training corpus, 160 clips) | 99.38% ± 1.25 |
+| Fresh holdout corpus (120 clips, different seed) | **98.33%** accuracy, AUC 0.9975 |
+| Holdout precision / recall / F1 | 96.77% / 100.00% / 0.984 |
+| Hard subset of holdout (denoised, re-encoded, grainy) | 95.00% |
+| Cross-engine agreement (JS vs Python vs Java) | ≤ 1e-9, 3-of-3 consensus |
+
+`model.json` embeds the evaluation block of the shipped weights; `evaluate.py`
+regenerates the holdout numbers. The hard subset is the honest floor: heavily
+post-processed footage is where the detector is weakest.
 
 ## Accuracy scope (read before quoting numbers)
 

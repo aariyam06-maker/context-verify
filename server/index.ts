@@ -36,12 +36,15 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function run(cmd: string[], cwd: string, timeoutMs = 60000): Promise<{ stdout: string; stderr: string; code: number }> {
+function run(cmd: string[], cwd: string, input?: string, timeoutMs = 60000): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve, reject) => {
     try {
       const proc = Bun.spawnSync({
         cmd,
         cwd,
+        // python CLIs read their request from stdin; without a piped body they
+        // see EOF and exit non-zero.
+        stdin: input !== undefined ? new Response(input).body : undefined,
         stdout: "pipe",
         stderr: "pipe",
         timeout: timeoutMs,
@@ -58,7 +61,7 @@ function run(cmd: string[], cwd: string, timeoutMs = 60000): Promise<{ stdout: s
 }
 
 function python(args: string[], input?: string) {
-  return run(["python3", ...args], PY_DIR, 300000).then((r) => {
+  return run(["python3", ...args], PY_DIR, input, 300000).then((r) => {
     if (r.code !== 0) throw new Error(`python failed: ${r.stderr.slice(0, 500)}`);
     return r.stdout;
   });
@@ -71,11 +74,14 @@ function java(args: string[]) {
   });
 }
 
+/** Errors caused by the caller (bad body/params) — surfaced as HTTP 400. */
+class ClientError extends Error {}
+
 async function readJson(req: Request): Promise<Record<string, unknown>> {
   try {
     return (await req.json()) as Record<string, unknown>;
   } catch {
-    throw new Error("Invalid JSON body.");
+    throw new ClientError("Invalid JSON body.");
   }
 }
 
@@ -106,10 +112,15 @@ export const routes = {
     const args = ["verify", feats.map((v) => String(v)).join(",")];
     const jsScore = typeof body.jsScore === "number" ? body.jsScore : undefined;
     const pyScore = typeof body.pyScore === "number" ? body.pyScore : undefined;
-    if (jsScore !== undefined) args.push(String(jsScore));
-    if (pyScore !== undefined) args.push(String(pyScore));
-    if (jsScore !== undefined && pyScore !== undefined && typeof body.tolerance === "number")
-      args.push(String(body.tolerance));
+    // Positional CLI: verify <features> [jsScore [pyScore [tolerance]]] —
+    // each optional arg only makes sense once its predecessor is present.
+    if (jsScore !== undefined) {
+      args.push(String(jsScore));
+      if (pyScore !== undefined) {
+        args.push(String(pyScore));
+        if (typeof body.tolerance === "number") args.push(String(body.tolerance));
+      }
+    }
     const out = await java(args);
     return json(JSON.parse(out) as VerifyResponse);
   },
@@ -132,7 +143,8 @@ const server = Bun.serve({
     try {
       return await route(req);
     } catch (e) {
-      return json({ error: e instanceof Error ? e.message : "gateway error" }, 500);
+      const message = e instanceof Error ? e.message : "gateway error";
+      return json({ error: message }, e instanceof ClientError ? 400 : 500);
     }
   },
 });

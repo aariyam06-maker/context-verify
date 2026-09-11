@@ -42,7 +42,10 @@ def score_features(model: Dict, features: List[float]) -> Dict:
     label = 1 if p >= thr else 0
     # Confidence: distance from the decision boundary, scaled to 0..1.
     confidence = abs(p - thr) / max(thr, 1 - thr)
-    return {"score": round(p, 6), "label": label, "confidence": round(confidence, 4)}
+    # NOTE: `score` is returned at full float64 precision on purpose — the
+    # cross-language conformance suite asserts JS/Python/Java agreement to
+    # 1e-9, which any rounding here would break.
+    return {"score": p, "label": label, "confidence": round(confidence, 4)}
 
 
 def main() -> int:

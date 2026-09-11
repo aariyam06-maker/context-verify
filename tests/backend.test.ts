@@ -260,10 +260,8 @@ describe("digest integrity", () => {
     expect(da).not.toBe(db);
   });
 
-  test("model.json in backend and src bundle are identical", () => {
-    const backend = JSON.parse(
-      Bun.file(join(PY_DIR, "model.json")).text() as unknown as string,
-    );
+  test("model.json in backend and src bundle are identical", async () => {
+    const backend = JSON.parse(await Bun.file(join(PY_DIR, "model.json")).text());
     const frontend = CTXTRACE_MODEL;
     expect(frontend.version).toBe(backend.version);
     expect(frontend.weights).toEqual(backend.weights);
@@ -364,6 +362,27 @@ describe("gateway", () => {
         };
         expect(Math.abs(verify.javaScore - JS_SCORE)).toBeLessThanOrEqual(1e-9);
         expect(verify.consensus?.enginesInAgreement).toBe(3);
+
+        // Error paths: bad requests must answer 4xx with a message, never a
+        // silent 200 or an unhandled crash.
+        const missingFeatures = await fetch(`${base}/api/score`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ nope: true }),
+        });
+        expect(missingFeatures.status).toBe(400);
+        const errBody = (await missingFeatures.json()) as { error?: string };
+        expect(typeof errBody.error).toBe("string");
+
+        const badJson = await fetch(`${base}/api/score`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{not json",
+        });
+        expect(badJson.status).toBe(400);
+
+        const notFound = await fetch(`${base}/api/does-not-exist`);
+        expect(notFound.status).toBe(404);
       } finally {
         proc.kill();
       }

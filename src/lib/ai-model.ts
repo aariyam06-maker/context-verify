@@ -142,7 +142,7 @@ function temporalFlicker(cur: Float64Array, prev: Float64Array): number {
   return d / n / denom;
 }
 
-function saturationDevOf(rgb: Uint8ClampedArray, w: number, h: number): number {
+function saturationDevOf(rgb: ArrayLike<number>, w: number, h: number): number {
   // Python subsamples [::4, ::4] (every 4th row/col); JS stride 16 bytes = 4 px
   // within a row, plus every 4th row.
   let sum = 0,
