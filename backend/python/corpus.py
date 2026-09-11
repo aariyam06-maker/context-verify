@@ -193,22 +193,22 @@ def clip_feature_vector(X: np.ndarray) -> Tuple[np.ndarray, list]:
     """Aggregate a clip's per-frame features (F, 16) into one clip vector.
 
     Adds three cross-frame features that carry the physical discriminators:
-    - layout_persistence: lag-1 correlation of heavily blurred (low-freq)
-      fields between consecutive frames. Real scenes persist coherently;
-      per-frame independent generation does not.
+    - layout_persistence: temporal stability of the low-frequency field
+      (approximated by luma_mean stability across frames). Real scenes
+      persist coherently; per-frame independent generation does not.
     - flicker_consistency: std of temporal_flicker across frames.
     - noise_coupling: mean noise_luma_corr (shot-noise physics).
 
-    The feature aggregation (means) must be mirrored exactly in JS/Java.
+    The aggregation (means of the 16 per-frame features) must be mirrored
+    exactly in JS/Java.
     """
-    F = X.shape[0]
     means = X.mean(axis=0)
     flicker_consistency = float(X[:, 1].std())
     noise_coupling = float(X[:, 12].mean())
-    # layout_persistence is computed by the caller from raw frames (needs the
-    # fields themselves); placeholder here, overwritten by build_clip_corpus.
-    layout_persistence = 0.0
-    vec = np.concatenate([means, [layout_persistence, flicker_consistency, noise_coupling]])
+    layout_persistence = 1.0 - float(X[:, 8].std()) / (float(X[:, 8].mean()) + 1e-6)
+    vec = np.concatenate(
+        [means, [layout_persistence, flicker_consistency, noise_coupling]]
+    )
     extra_names = ["layout_persistence", "flicker_consistency", "noise_coupling"]
     return vec, extra_names
 
@@ -220,8 +220,6 @@ def build_clip_corpus(
     seed: int = RNG_SEED,
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
     """Clip-level corpus: one 19-dim vector per clip (the product granularity)."""
-    from features import _box_blur_fast
-
     rng = np.random.default_rng(seed)
     vecs: List[np.ndarray] = []
     ys: List[int] = []

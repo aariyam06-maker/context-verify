@@ -1,9 +1,10 @@
 """Inference CLI for the ContextTrace AI-content detector.
 
 Modes:
-  score  — read {"features": [12 floats]} and print {"score","label","confidence"}
-  feats  — read {"frames": [H,W,3 RGB arrays], ...} and print the extracted
-           12-feature vectors (used by the cross-language conformance tests)
+  score  — read {"features": [19 floats]} (16 frame means + 3 cross-frame) and
+           print {"score","label","confidence"}
+  feats  — read {"frames": [H,W,3 RGB arrays]} and print per-frame 16-feature
+           vectors (used by the cross-language conformance tests)
 
 Used by the bun gateway (server/index.ts) and the test suite.
 """
@@ -31,12 +32,12 @@ def load_model() -> Dict:
 
 
 def score_features(model: Dict, features: List[float]) -> Dict:
-    from train import predict_proba, standardize_apply
+    from train import model_predict, standardize_apply
 
     x = np.array([features], dtype=np.float64)
     mu = np.array(model["mu"])
     sigma = np.array(model["sigma"])
-    p = float(predict_proba(standardize_apply(x, mu, sigma), np.array(model["weights"]), float(model["bias"]))[0])
+    p = float(model_predict(model, standardize_apply(x, mu, sigma))[0])
     thr = float(model.get("threshold", 0.5))
     label = 1 if p >= thr else 0
     # Confidence: distance from the decision boundary, scaled to 0..1.

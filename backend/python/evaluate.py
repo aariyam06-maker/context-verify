@@ -14,9 +14,9 @@ from typing import Dict
 
 import numpy as np
 
-from corpus import build_corpus
+from corpus import build_clip_corpus
 from features import FEATURE_NAMES
-from train import MODEL_PATH, fit_logistic, predict_proba, standardize_apply, standardize_fit
+from train import MODEL_PATH, model_predict, standardize_apply, standardize_fit
 
 
 def roc_auc(y: np.ndarray, p: np.ndarray) -> float:
@@ -42,13 +42,11 @@ def roc_auc(y: np.ndarray, p: np.ndarray) -> float:
     return (sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
 
 
-def evaluate(model: Dict, n_per_class: int = 40, seed: int = 998877) -> Dict:
-    X, y, meta = build_corpus(n_per_class=n_per_class, frames=14, seed=seed)
-    w = np.array(model["weights"])
-    b = float(model["bias"])
+def evaluate(model: Dict, n_per_class: int = 60, seed: int = 998877) -> Dict:
+    X, y, meta = build_clip_corpus(n_per_class=n_per_class, frames=14, seed=seed)
     mu = np.array(model["mu"])
     sigma = np.array(model["sigma"])
-    p = predict_proba(standardize_apply(X, mu, sigma), w, b)
+    p = model_predict(model, standardize_apply(X, mu, sigma))
     pred = (p >= float(model.get("threshold", 0.5))).astype(np.int64)
 
     tp = int(((pred == 1) & (y == 1)).sum())
@@ -71,9 +69,10 @@ def evaluate(model: Dict, n_per_class: int = 40, seed: int = 998877) -> Dict:
         "f1": f1,
         "auc": roc_auc(y, p),
         "confusion": {"tp": tp, "tn": tn, "fp": fp, "fn": fn},
-        "nFrames": int(len(y)),
+        "nClips": int(len(y)),
         "hardSubsetAccuracy": hard_acc,
-        "hardSubsetFrames": int(hard_mask.sum()),
+        "hardSubsetClips": int(hard_mask.sum()),
+        "version": model.get("version", "unknown"),
     }
 
 
@@ -93,7 +92,7 @@ def main() -> int:
     )
     if ev["hardSubsetAccuracy"] is not None:
         print(
-            f"hard subset ({ev['hardSubsetFrames']} frames): {ev['hardSubsetAccuracy']*100:.2f}%"
+            f"hard subset ({ev['hardSubsetClips']} clips): {ev['hardSubsetAccuracy']*100:.2f}%"
         )
     return 0
 
