@@ -1,272 +1,208 @@
-## Overview
-
-This project uses the following tech stack:
-- Vite
-- Typescript
-- React Router v7 (all imports from `react-router` instead of `react-router-dom`)
-- React 19 (for frontend components)
-- Tailwind v4 (for styling)
-- Shadcn UI (for UI components library)
-- Lucide Icons (for icons)
-- Convex (for backend & database)
-- Convex Auth (for authentication)
-- Framer Motion (for animations)
-- Three js (for 3d models)
-
-All relevant files live in the 'src' directory.
-
-Use bun for the package manager.
-
-## Setup
-
-This project is set up already and running on a cloud environment, as well as a convex development in the sandbox.
-
-## Environment Variables
-
-The project is set up with project specific CONVEX_DEPLOYMENT and VITE_CONVEX_URL environment variables on the client side.
-
-The convex server has a separate set of environment variables that are accessible by the convex backend.
-
-Currently, these variables include auth-specific keys: JWKS, JWT_PRIVATE_KEY, and SITE_URL.
-
-
-# Using Authentication (Important!)
-
-You must follow these conventions when using authentication.
-
-## Auth is already set up.
-
-All convex authentication functions are already set up. The auth currently uses email OTP and anonymous users, but can support more.
-
-The email OTP configuration is defined in `src/convex/auth/emailOtp.ts`. DO NOT MODIFY THIS FILE.
-
-Also, DO NOT MODIFY THESE AUTH FILES: `src/convex/auth.config.ts` and `src/convex/auth.ts`.
-
-## Using Convex Auth on the backend
-
-On the `src/convex/users.ts` file, you can use the `getCurrentUser` function to get the current user's data.
-
-## Using Convex Auth on the frontend
-
-The `/auth` page is already set up to use auth. Navigate to `/auth` for all log in / sign up sequences.
-
-You MUST use this hook to get user data. Never do this yourself without the hook:
-```typescript
-import { useAuth } from "@/hooks/use-auth";
-
-const { isLoading, isAuthenticated, user, signIn, signOut } = useAuth();
-```
-
-## Protected Routes
-
-The starter `/dashboard` route is protected with `RequireAuth`, which sends
-signed-out users to `/auth?returnTo=<current route>`. Extend that page for the
-product's authenticated experience, and reuse `RequireAuth` when adding another
-protected route.
-
-## Auth Page
-
-The auth page is defined in `src/pages/Auth.tsx`. Send sign-in and sign-up actions
-to `/auth`.
-
-## Authorization
-
-You can perform authorization checks on the frontend and backend.
-
-On the frontend, you can use the `useAuth` hook to get the current user's data and authentication state.
-
-You should also be protecting queries, mutations, and actions at the base level, checking for authorization securely.
-
-## Adding a redirect after auth
-
-The `/auth` route in `src/main.tsx` redirects to `/dashboard` by default. If the
-product's main authenticated route is different, update `redirectAfterAuth` to
-that route. A validated same-origin `returnTo` query parameter takes priority so
-users can resume the protected page they originally requested. Never leave an
-authenticated product redirecting back to the public landing page.
-
-## Complete authenticated products
-
-When the requested product implies accounts, a workspace, a dashboard, or other
-signed-in functionality, the task is not complete with only a landing page and
-auth form. Build the main authenticated experience, protect its route, and verify
-that signing in reaches it.
-
-# Frontend Conventions
-
-You will be using the Vite frontend with React 19, Tailwind v4, and Shadcn UI.
-
-Generally, pages should be in the `src/pages` folder, and components should be in the `src/components` folder.
-
-Shadcn primitives are located in the `src/components/ui` folder and should be used by default.
-
-## Page routing
-
-Your page component should go under the `src/pages` folder.
-
-When adding a page, update the react router configuration in `src/main.tsx` to include the new route you just added.
-
-## Shad CN conventions
-
-Follow these conventions when using Shad CN components, which you should use by default.
-- Remember to use "cursor-pointer" to make the element clickable
-- For title text, use the "tracking-tight font-bold" class to make the text more readable
-- Always make apps MOBILE RESPONSIVE. This is important
-- AVOID NESTED CARDS. Try and not to nest cards, borders, components, etc. Nested cards add clutter and make the app look messy.
-- AVOID SHADOWS. Avoid adding any shadows to components. stick with a thin border without the shadow.
-- Avoid skeletons; instead, use the loader2 component to show a spinning loading state when loading data.
-
-
-## Landing Pages
-
-You must always create good-looking designer-level styles to your application. 
-- Make it well animated and fit a certain "theme", ie neo brutalist, retro, neumorphism, glass morphism, etc
-
-Use known images and emojis from online.
-
-If the user is logged in already, show the get started button to say "Dashboard" or "Profile" instead to take them there.
-
-## Responsiveness and formatting
-
-Make sure pages are wrapped in a container to prevent the width stretching out on wide screens. Always make sure they are centered aligned and not off-center.
-
-Always make sure that your designs are mobile responsive. Verify the formatting to ensure it has correct max and min widths as well as mobile responsiveness.
-
-- Always create sidebars for protected dashboard pages and navigate between pages
-- Always create navbars for landing pages
-- On these bars, the created logo should be clickable and redirect to the index page
-
-## Animating with Framer Motion
-
-You must add animations to components using Framer Motion. It is already installed and configured in the project.
-
-To use it, import the `motion` component from `framer-motion` and use it to wrap the component you want to animate.
-
-
-### Other Items to animate
-- Fade in and Fade Out
-- Slide in and Slide Out animations
-- Rendering animations
-- Button clicks and UI elements
-
-Animate for all components, including on landing page and app pages.
-
-## Three JS Graphics
-
-Your app comes with three js by default. You can use it to create 3D graphics for landing pages, games, etc.
-
-
-## Colors
-
-You can override colors in: `src/index.css`
-
-This uses the oklch color format for tailwind v4.
-
-Always use these color variable names.
-
-Make sure all ui components are set up to be mobile responsive and compatible with both light and dark mode.
-
-Set theme using `dark` or `light` variables at the parent className.
-
-## Styling and Theming
-
-When changing the theme, always change the underlying theme of the shad cn components app-wide under `src/components/ui` and the colors in the index.css file.
-
-Avoid hardcoding in colors unless necessary for a use case, and properly implement themes through the underlying shad cn ui components.
-
-When styling, ensure buttons and clickable items have pointer-click on them (don't by default).
-
-Always follow a set theme style and ensure it is tuned to the user's liking.
-
-## Toasts
-
-You should always use toasts to display results to the user, such as confirmations, results, errors, etc.
-
-Use the shad cn Sonner component as the toaster. For example:
+# ContextTrace
+
+**AI-based source-vs-edit context analysis.** ContextTrace compares an
+original/source video against an edited or short-form derivative and produces an
+evidence-backed assessment of whether the editing materially changes the context
+conveyed to viewers. It deliberately distinguishes an *observed edit* from its
+*contextual impact*, and never treats ordinary editing as automatically malicious.
+
+> **DEMO MODE — read this first**
+> Real ASR (faster-whisper), embeddings (Sentence-Transformers), FAISS, OpenCLIP
+> and PaddleOCR cannot execute inside this hosting environment's function
+> runtime. The modality providers in this build are clearly-labelled
+> deterministic **simulators**: they synthesize transcript/OCR evidence for the
+> uploaded media, and every surface that shows analysis data says so. The
+> alignment, edit-event detection, degradation handling and scoring logic run
+> **for real** on that evidence. Nothing is presented as a real AI verdict —
+> findings, timestamps, confidences and the Context Integrity Score derive from
+> the deterministic engine (`src/convex/engine.ts`), not from fabricated output.
+
+---
+
+## What version 1 does
+
+Scope (per the v1 spec): **upload two videos and follow job progress to a report**.
+
+1. Register / log in (email OTP or guest session).
+2. **New Analysis** — upload exactly two videos: Source + Edited. Each file is
+   validated client-side (container, size, decodability, duration, audio track)
+   before the analysis can start.
+3. An asynchronous analysis job is created and walked through nine visible
+   pipeline stages on the server, with live progress (percentage, current stage,
+   elapsed time, job ID).
+4. The completed **Analysis Report** shows the Context Integrity Score,
+   overall confidence, evidence coverage, uncertainty, and every finding with
+   source/edited timestamps, observed change vs. contextual impact.
+5. Selecting a finding **seeks both synchronized video players** to the relevant
+   timestamps; aligned intervals and event markers are drawn on both timelines.
+6. Completed reports are stored in **Analysis History** and reopen without
+   re-upload (video replay requires the same browser session, where the files
+   are stored locally).
+7. An **Admin / Review** console (role-protected, enforced server-side) lists
+   users, all jobs, failures, degraded jobs and scores.
+
+## The pipeline
 
 ```
-import { toast } from "sonner"
-
-import { Button } from "@/components/ui/button"
-export function SonnerDemo() {
-  return (
-    <Button
-      variant="outline"
-      onClick={() =>
-        toast("Event has been created", {
-          description: "Sunday, December 03, 2023 at 9:00 AM",
-          action: {
-            label: "Undo",
-            onClick: () => console.log("Undo"),
-          },
-        })
-      }
-    >
-      Show Toast
-    </Button>
-  )
-}
+SOURCE + EDITED VIDEO
+→ VALIDATE & PREPROCESS          (media_validation, preprocessing)
+→ EXTRACT EVIDENCE               (speech_analysis, visual_evidence, ocr_evidence)
+→ ALIGN SOURCE AND EDIT          (semantic_alignment)
+→ DETECT EDIT EVENTS             (edit_detection)
+→ ASSESS CONTEXTUAL IMPACT       (context_analysis)
+→ GENERATE EVIDENCE-BACKED REPORT (report_generation)
 ```
 
-Remember to import { toast } from "sonner". Usage: `toast("Event has been created.")`
+Stages are executed as scheduled Convex actions (`src/convex/pipeline.ts`),
+chained through the scheduler so long-running work never blocks a request or
+freezes the UI. Each stage persists evidence into the database; the job row
+carries `status` (QUEUED / RUNNING / DEGRADED / COMPLETED / FAILED),
+`currentStage`, `progress`, and accumulated `warnings`.
 
-## Dialogs
+### Detection logic and evidence integrity
 
-Always ensure your larger dialogs have a scroll in its content to ensure that its content fits the screen size. Make sure that the content is not cut off from the screen.
+* Speech alignment is the **primary** correspondence signal
+  (`alignTranscripts`): greedy high-confidence anchors, then thresholded
+  residual pairings.
+* Edit events are detected from alignment structure: **Omission** (source
+  statement absent from the edit), **Reordering** (non-monotonic mapping
+  order), **Discontinuity** (adjacent edited statements mapping far apart in
+  the source), **Splicing** (edited content with no source counterpart, flanked
+  by matched content).
+* A missing or non-contiguous mapping is only a **candidate** — weak or short
+  segments, or low-confidence transcripts, never become findings
+  ("no evidence pollution").
+* Visual correspondence and OCR are supporting evidence only; no standalone
+  visual/caption claim is ever emitted in v1. OCR/speech vocabulary mismatch is
+  surfaced as a **warning**, not an event.
+* Modality failure (e.g. missing audio track) marks the job **DEGRADED** and
+  analysis continues on remaining evidence. A critical stage failure marks the
+  job **FAILED** — and a failed job never renders a complete-looking report.
 
-Ideally, instead of using a new page, use a Dialog instead. 
+### Context Integrity Score
 
-# Using the Convex backend
+`score = 100 · (1 − Σ category_weight × severity_multiplier × confidence_multiplier)`
 
-You will be implementing the convex backend. Follow your knowledge of convex and the documentation to implement the backend.
+Weights: omission 0.35, splicing 0.22, reordering 0.18, discontinuity 0.12;
+severity multipliers high 1.0 / medium 0.6 / low 0.3; each finding scaled by its
+own confidence. The score is transparent and recomputed from persisted evidence
+rows at report time. Every score is accompanied by overall confidence, evidence
+coverage, uncertainty, and per-finding evidence.
 
-## The Convex Schema
+## Architecture
 
-You must correctly follow the convex schema implementation.
-
-The schema is defined in `src/convex/schema.ts`.
-
-Do not include the `_id` and `_creationTime` fields in your queries (it is included by default for each table).
-Do not index `_creationTime` as it is indexed for you. Never have duplicate indexes.
-
-
-## Convex Actions: Using CRUD operations
-
-When running anything that involves external connections, you must use a convex action with "use node" at the top of the file.
-
-You cannot have queries or mutations in the same file as a "use node" action file. Thus, you must use pre-built queries and mutations in other files.
-
-You can also use the pre-installed internal crud functions for the database:
-
-```ts
-// in convex/users.ts
-import { crud } from "convex-helpers/server/crud";
-import schema from "./schema.ts";
-
-export const { create, read, update, destroy } = crud(schema, "users");
-
-// in some file, in an action:
-const user = await ctx.runQuery(internal.users.read, { id: userId });
-
-await ctx.runMutation(internal.users.update, {
-  id: userId,
-  patch: {
-    status: "inactive",
-  },
-});
+```
+src/
+  convex/            Backend (Convex functions = server layer)
+    schema.ts        Data model (users, videos, analysisJobs, transcriptSegments,
+                     alignmentMappings, evidenceEvents, reports) + indexes
+    engine.ts        Deterministic analysis engine (pure functions, testable)
+    pipeline.ts      Scheduled background pipeline (9 stages)
+    jobs.ts          Job queries/mutations + internal pipeline persistence
+    videos.ts        Video registration + ownership-checked reads
+    admin.ts         Role-protected review queries
+    auth.ts / auth.config.ts / auth/emailOtp.ts   Convex Auth (email OTP, guest)
+  components/        UI components (AppShell, FindingCard, EvidencePanel,
+                     DualTimeline, ScoreCard, PipelineStepper, RequireAuth/Role)
+  lib/
+    engine.test-…    (see below)
+    local-videos.ts  Client-side validation + IndexedDB artifact store
+    trace.ts         Formatting, status/severity presentation, demo notice
+  pages/             Landing, Auth, Dashboard, NewAnalysis, AnalysisProgress,
+                     AnalysisReport, History, Admin, NotFound
 ```
 
+**Layering:** React (SPA, react-router) → typed Convex client calls →
+Convex queries/mutations/actions (authorization + persistence) → scheduled
+actions (pipeline) → engine (pure functions). Real FFmpeg/faster-whisper/
+Sentence-Transformers/FAISS/OpenCLIP/PaddleOCR implementations plug in behind
+the modality-provider seam in `pipeline.ts`; only those providers are replaced,
+the engine, data model and UI are unchanged.
 
-## Common Convex Mistakes To Avoid
+**Storage:** video files are validated client-side and stored in the browser's
+IndexedDB (`src/lib/local-videos.ts`) keyed by `storageKey`; metadata and
+validation state persist server-side. This keeps blobs out of the database while
+enabling the synchronized timeline replay for the owner's session.
 
-When using convex, make sure:
-- Document IDs are referenced as `_id` field, not `id`.
-- Document ID types are referenced as `Id<"TableName">`, not `string`.
-- Document object types are referenced as `Doc<"TableName">`.
-- Keep schemaValidation to false in the schema file.
-- You must correctly type your code so that it passes the type checker.
-- You must handle null / undefined cases of your convex queries for both frontend and backend, or else it will throw an error that your data could be null or undefined.
-- Always use the `@/folder` path, with `@/convex/folder/file.ts` syntax for importing convex files.
-- This includes importing generated files like `@/convex/_generated/server`, `@/convex/_generated/api`
-- Remember to import functions like useQuery, useMutation, useAction, etc. from `convex/react`
-- NEVER have return type validators.
+## Running locally
+
+Requirements: [Bun](https://bun.sh) ≥ 1.1, a Convex account (free tier works).
+
+```bash
+# 1. Install dependencies
+bun install
+
+# 2. Create/link a Convex deployment and write .env.local
+bunx convex dev          # first run provisions; keep it running in a terminal
+
+# 3. In a second terminal, start the app
+bun run dev              # http://localhost:5173
+```
+
+Environment variables live in `.env.local` (see `.env.example`):
+`VITE_CONVEX_URL` is created by `convex dev`; optional values enable extra
+integrations.
+
+### Database setup / migrations
+
+The schema is deployed with the functions (`bunx convex dev --once` or
+`bunx convex deploy`). Convex applies schema changes automatically; there is no
+separate migration step. To push without watching:
+
+```bash
+bunx convex dev --once
+```
+
+### Making yourself an admin
+
+The Admin console requires `role === "admin"`. Register normally, then promote
+yourself from the [Convex dashboard](https://dashboard.convex.dev) → Data →
+`users` → set `role: "admin"` (or run `npx convex run` with a small mutation).
+
+### API surface
+
+Convex functions replace the REST endpoints of the SRS 1:1 — same operations,
+same ownership checks, typed client, reactive subscriptions:
+
+| SRS REST endpoint              | Convex function                  |
+| ------------------------------ | -------------------------------- |
+| `POST /auth/register`·`login`  | Convex Auth (`email-otp`, `anonymous`) |
+| `POST /videos/upload`          | `videos.register`                |
+| `POST /analysis`               | `jobs.createJob`                 |
+| `GET /analysis/{job_id}`       | `jobs.getJob` (reactive)         |
+| `GET /analysis/{job_id}/status`| `jobs.getJob` (reactive)         |
+| `GET /analysis/{job_id}/report`| `jobs.getReport`                 |
+| `GET /analysis/{job_id}/evidence` | `jobs.getEvidence` + `jobs.getEvidenceDetail` |
+| `GET /analysis/history`        | `jobs.listJobs`                  |
+| `GET /reports/{report_id}`     | `jobs.getReport` (by job)        |
+| admin console                  | `admin.adminOverview`            |
+
+## Error handling
+
+| Condition | Behaviour |
+| --- | --- |
+| Unsupported format / too large / empty | Rejected at upload with reason |
+| Corrupt / undecodable media | Client probe fails; never registered |
+| Missing audio track | Job continues, marked **DEGRADED**, warning shown |
+| ASR / OCR / visual failure | Stage warning + DEGRADED status |
+| Insufficient correspondence | Fewer findings; coverage/uncertainty reflect it |
+| Critical stage failure | Job **FAILED** with message; no report rendered |
+| Storage failure | Upload rejected; job input re-validated server-side |
+| Authentication failure | Clear error; protected routes redirect to `/auth?returnTo=` |
+
+Failures are never swallowed silently: they surface as job state, warnings, or
+error states in the UI.
+
+## Sample / demo data
+
+The demo provider (`DEMO_SPEECH` in `src/convex/pipeline.ts`) models a quarterly
+briefing: the edited version reorders two answers and omits the qualification
+sentence — so a typical run produces an Omission, a Reordering and a
+Discontinuity finding with real timestamps derived from your uploaded durations.
+Any two valid video files exercise the full flow end-to-end.
+
+## Docs
+
+* `.env.example` — environment configuration
+* Convex dashboard — data browser, function logs, scheduler
+* `src/convex/engine.ts` — detection/scoring logic, documented inline

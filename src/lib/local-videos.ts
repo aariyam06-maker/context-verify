@@ -140,7 +140,15 @@ export async function validateAndStore(file: File): Promise<LocalValidationResul
 function probeVideo(
   file: File,
 ): Promise<
-  | { ok: true; value: Omit<Extract<LocalValidationResult, { ok: true }>, "storageKey"> }
+  | { ok: true; value: {
+      filename: string;
+      mimeType: string;
+      byteSize: number;
+      durationSeconds: number;
+      width: number;
+      height: number;
+      hasAudio: boolean;
+    } }
   | { ok: false; error: string }
 > {
   return new Promise((resolve) => {

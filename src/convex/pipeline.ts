@@ -17,10 +17,8 @@ import {
   DEFAULT_MATCH_THRESHOLD,
   DEFAULT_STRONG_THRESHOLD,
   runAnalysis,
-  type AnalysisResult,
   type TranscriptSegmentInput,
 } from "./engine";
-import { PIPELINE_STAGES } from "./schema";
 
 const PIPELINE_VERSION = "ctxtrace-engine v1.0.0 (demo-mode)";
 const MODEL_CONFIGURATION =

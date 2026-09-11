@@ -4,12 +4,11 @@ import {
   mutation,
   internalQuery,
   internalMutation,
-  action,
 } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { internal, api } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { PIPELINE_STAGES } from "./schema";
-import type { AnalysisResult, TranscriptSegmentInput } from "./engine";
+import type { TranscriptSegmentInput } from "./engine";
 import { checkCaptionMismatch, formatTimestamp } from "./engine";
 
 // ---------------------------------------------------------------------------
@@ -17,7 +16,7 @@ import { checkCaptionMismatch, formatTimestamp } from "./engine";
 // ---------------------------------------------------------------------------
 
 /** Create a job from two uploaded videos, validate ownership, start pipeline. */
-export const createJob = action({
+export const createJob = mutation({
   args: {
     sourceVideoId: v.id("videos"),
     editedVideoId: v.id("videos"),
@@ -26,13 +25,14 @@ export const createJob = action({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Authentication required.");
 
-    const source = await ctx.runQuery(api.videos.getOwned, {
-      videoId: args.sourceVideoId,
-    });
-    const edited = await ctx.runQuery(api.videos.getOwned, {
-      videoId: args.editedVideoId,
-    });
-    if (!source || !edited) {
+    const source = await ctx.db.get(args.sourceVideoId);
+    const edited = await ctx.db.get(args.editedVideoId);
+    if (
+      !source ||
+      !edited ||
+      source.ownerId !== userId ||
+      edited.ownerId !== userId
+    ) {
       throw new Error("Videos not found or not owned by you.");
     }
     if (
@@ -42,10 +42,15 @@ export const createJob = action({
       throw new Error("Both videos must pass validation before analysis.");
     }
 
-    const jobId = await ctx.runMutation(internal.jobs.createJobInternal, {
+    const jobId = await ctx.db.insert("analysisJobs", {
       ownerId: userId,
       sourceVideoId: args.sourceVideoId,
       editedVideoId: args.editedVideoId,
+      status: "QUEUED",
+      currentStage: "media_validation",
+      progress: 0,
+      pipelineVersion: "ctxtrace-engine v1.0.0 (demo-mode)",
+      createdAt: Date.now(),
     });
 
     await ctx.scheduler.runAfter(0, internal.pipeline.startStage, { jobId });
@@ -147,6 +152,56 @@ export const listJobs = query({
         };
       }),
     );
+  },
+});
+
+/** Retry a failed job: reset it and re-run the pipeline from stage 1. */
+export const retryJob = mutation({
+  args: { jobId: v.id("analysisJobs") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Authentication required.");
+    const job = await ctx.db.get(args.jobId);
+    if (!job || job.ownerId !== userId) {
+      throw new Error("Job not found or not owned by you.");
+    }
+    if (job.status !== "FAILED") {
+      throw new Error("Only failed jobs can be retried.");
+    }
+
+    // Clean prior artifacts so the re-run is deterministic.
+    const events = await ctx.db
+      .query("evidenceEvents")
+      .withIndex("by_job_severity", (q) => q.eq("jobId", args.jobId))
+      .collect();
+    for (const e of events) await ctx.db.delete(e._id);
+    const segments = await ctx.db
+      .query("transcriptSegments")
+      .withIndex("by_job", (q) => q.eq("jobId", args.jobId))
+      .collect();
+    for (const s of segments) await ctx.db.delete(s._id);
+    const reports = await ctx.db
+      .query("reports")
+      .withIndex("by_job", (q) => q.eq("jobId", args.jobId))
+      .collect();
+    for (const r of reports) await ctx.db.delete(r._id);
+
+    await ctx.db.patch(args.jobId, {
+      status: "QUEUED",
+      currentStage: "media_validation",
+      progress: 0,
+      errorMessage: undefined,
+      warnings: [],
+      sourceSegmentsBuffer: undefined,
+      editedSegmentsBuffer: undefined,
+      sourceOcrBuffer: undefined,
+      editedOcrBuffer: undefined,
+      completedAt: undefined,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.pipeline.startStage, {
+      jobId: args.jobId,
+    });
   },
 });
 
