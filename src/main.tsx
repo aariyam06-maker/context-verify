@@ -15,6 +15,7 @@ const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const NewAnalysis = lazy(() => import("./pages/NewAnalysis.tsx"));
+const ScanWorkbench = lazy(() => import("./pages/ScanWorkbench.tsx"));
 const AnalysisProgress = lazy(() => import("./pages/AnalysisProgress.tsx"));
 const AnalysisReport = lazy(() => import("./pages/AnalysisReport.tsx"));
 const History = lazy(() => import("./pages/History.tsx"));
@@ -143,6 +144,22 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <RequireAuth>
                     <NewAnalysis />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/scan"
+                element={
+                  <RequireAuth>
+                    <ScanWorkbench />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/scan/:jobId"
+                element={
+                  <RequireAuth>
+                    <ScanWorkbench />
                   </RequireAuth>
                 }
               />

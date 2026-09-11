@@ -7,39 +7,74 @@ conveyed to viewers. It deliberately distinguishes an *observed edit* from its
 *contextual impact*, and never treats ordinary editing as automatically malicious.
 
 > **DEMO MODE — read this first**
-> Real ASR (faster-whisper), embeddings (Sentence-Transformers), FAISS, OpenCLIP
-> and PaddleOCR cannot execute inside this hosting environment's function
-> runtime. The modality providers in this build are clearly-labelled
+> In **Compare** mode, real ASR (faster-whisper), embeddings (Sentence-Transformers),
+> FAISS, OpenCLIP and PaddleOCR cannot execute inside this hosting environment's
+> function runtime. The modality providers in this build are clearly-labelled
 > deterministic **simulators**: they synthesize transcript/OCR evidence for the
 > uploaded media, and every surface that shows analysis data says so. The
 > alignment, edit-event detection, degradation handling and scoring logic run
-> **for real** on that evidence. Nothing is presented as a real AI verdict —
-> findings, timestamps, confidences and the Context Integrity Score derive from
-> the deterministic engine (`src/convex/engine.ts`), not from fabricated output.
+> **for real** on that evidence.
+>
+> **AI-Scan and Mitigation run for real in your browser** — no simulation: the
+> video is decoded locally, frames are measured pixel-by-pixel (canvas + typed
+> arrays), and the mitigation output is a genuine re-encode through
+> `MediaRecorder`. Files never leave your machine. Their limits are stated
+> honestly in the UI and below.
 
 ---
 
 ## What version 1 does
 
-Scope (per the v1 spec): **upload two videos and follow job progress to a report**.
+Three capabilities, one workstation:
 
-1. Register / log in (email OTP or guest session).
-2. **New Analysis** — upload exactly two videos: Source + Edited. Each file is
-   validated client-side (container, size, decodability, duration, audio track)
-   before the analysis can start.
-3. An asynchronous analysis job is created and walked through nine visible
-   pipeline stages on the server, with live progress (percentage, current stage,
-   elapsed time, job ID).
-4. The completed **Analysis Report** shows the Context Integrity Score,
-   overall confidence, evidence coverage, uncertainty, and every finding with
-   source/edited timestamps, observed change vs. contextual impact.
-5. Selecting a finding **seeks both synchronized video players** to the relevant
-   timestamps; aligned intervals and event markers are drawn on both timelines.
-6. Completed reports are stored in **Analysis History** and reopen without
-   re-upload (video replay requires the same browser session, where the files
-   are stored locally).
-7. An **Admin / Review** console (role-protected, enforced server-side) lists
-   users, all jobs, failures, degraded jobs and scores.
+### 1. Compare — source vs. edited (async server pipeline)
+
+Upload exactly two videos (Source + Edited). Client-side validation, then a
+nine-stage background pipeline to an evidence-backed report: Context Integrity
+Score, confidence, coverage, uncertainty, findings with timestamps, and a
+synchronized dual timeline that seeks both players when you select a finding.
+Completed reports persist in Analysis History.
+
+### 2. AI-Scan — single video, real browser forensics (no source needed)
+
+Works with **only the edited video** — no source comparison required. The video
+is decoded locally and N frames are sampled across its duration; six forensic
+components are measured per frame:
+
+| Component | What it measures |
+| --- | --- |
+| Blockiness | 8×8 grid edge energy vs. off-grid (DCT blocking regularity) |
+| Temporal flicker | Inter-frame luminance instability beyond motion expectation |
+| Saturation deviation | Per-frame chroma distribution vs. natural-video norms |
+| Texture uniformity | Local patch-variance homogeneity (over-smoothed texture) |
+| Compression noise | High-frequency residual after blur separation |
+| Spectral energy | Mid/high-frequency energy ratio (synthetic falloff) |
+
+The result is an **AI-content likelihood percentage** (0–100), a per-component
+breakdown, and timestamped findings — which component breached, at which frame
+time, what fraction of frames breached. Honest limits, stated in the UI: this
+measures generation/processing *artifacts*, not semantic "AI-ness"; scores are
+forensic indicators with stated uncertainty, never proof.
+
+### 3. Mitigation — tentative AI-trace removal + cleaned video
+
+When the scan finds traces, the **Remove AI Traces** pass re-encodes the video
+in real time (`canvas.captureStream` → `MediaRecorder`, VP9/Opus WebM) through
+targeted passes chosen from the scan: block-edge denoise, temporal
+stabilization (frame blending), micro-texture reinjection, chroma re-mapping,
+spectral reshaping, plus an audio chain (highpass/lowpass/high-shelf/compressor)
+that breaks synthetic speech signatures. The output is verified with a full
+**post-scan** — before/after per-component deltas and the new AI score — and can
+be **downloaded** as a WebM. Traces are reduced, not erased; the post-scan
+verifies what actually changed, and if the score did not improve the job is
+marked DEGRADED rather than claiming success.
+
+### 4. Register / log in, dashboard, history, admin
+
+Email OTP or guest session; the dashboard counts totals/completed/running/
+degraded/failed across both modes; history reopens any report (scan rows route
+to the workbench, compare rows to the report); the admin console (role-checked
+server-side) lists users and all jobs.
 
 ## The pipeline
 
@@ -95,21 +130,23 @@ coverage, uncertainty, and per-finding evidence.
 src/
   convex/            Backend (Convex functions = server layer)
     schema.ts        Data model (users, videos, analysisJobs, transcriptSegments,
-                     alignmentMappings, evidenceEvents, reports) + indexes
-    engine.ts        Deterministic analysis engine (pure functions, testable)
-    pipeline.ts      Scheduled background pipeline (9 stages)
-    jobs.ts          Job queries/mutations + internal pipeline persistence
+                     alignmentMappings, evidenceEvents, scanFindings, reports)
+    engine.ts        Deterministic compare-mode engine (pure functions)
+    pipeline.ts      Scheduled background pipeline (9 stages, compare mode)
+    jobs.ts          Job queries/mutations (compare + scan + mitigation) + persistence
     videos.ts        Video registration + ownership-checked reads
     admin.ts         Role-protected review queries
     auth.ts / auth.config.ts / auth/emailOtp.ts   Convex Auth (email OTP, guest)
   components/        UI components (AppShell, FindingCard, EvidencePanel,
                      DualTimeline, ScoreCard, PipelineStepper, RequireAuth/Role)
   lib/
-    engine.test-…    (see below)
+    ai-scan.ts       REAL browser forensics: frame sampling + 6-component analysis
+    mitigation.ts    REAL re-encode pipeline: targeted passes + post-scan
     local-videos.ts  Client-side validation + IndexedDB artifact store
     trace.ts         Formatting, status/severity presentation, demo notice
-  pages/             Landing, Auth, Dashboard, NewAnalysis, AnalysisProgress,
-                     AnalysisReport, History, Admin, NotFound
+  pages/             Landing, Auth, Dashboard, NewAnalysis (mode tabs),
+                     ScanWorkbench, AnalysisProgress, AnalysisReport, History,
+                     Admin, NotFound
 ```
 
 **Layering:** React (SPA, react-router) → typed Convex client calls →
@@ -168,7 +205,10 @@ same ownership checks, typed client, reactive subscriptions:
 | ------------------------------ | -------------------------------- |
 | `POST /auth/register`·`login`  | Convex Auth (`email-otp`, `anonymous`) |
 | `POST /videos/upload`          | `videos.register`                |
-| `POST /analysis`               | `jobs.createJob`                 |
+| `POST /analysis`               | `jobs.createJob` (compare)       |
+| `POST /analysis` (single video)| `jobs.createScanJob` (AI-Scan)   |
+| scan finalize                  | `jobs.finalizeScanReport`        |
+| mitigation result              | `jobs.saveMitigationResult`      |
 | `GET /analysis/{job_id}`       | `jobs.getJob` (reactive)         |
 | `GET /analysis/{job_id}/status`| `jobs.getJob` (reactive)         |
 | `GET /analysis/{job_id}/report`| `jobs.getReport`                 |

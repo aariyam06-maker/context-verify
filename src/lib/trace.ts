@@ -54,6 +54,33 @@ export function formatPercent(n: number, digits = 0): string {
 
 export type JobStatus = "QUEUED" | "RUNNING" | "DEGRADED" | "COMPLETED" | "FAILED";
 
+export type JobMode = "compare" | "scan" | "mitigation";
+
+export const MODE_BADGE: Record<JobMode, { label: string; className: string }> = {
+  compare: {
+    label: "COMPARE",
+    className: "bg-muted text-muted-foreground border border-border",
+  },
+  scan: {
+    label: "AI-SCAN",
+    className: "bg-[var(--trace-blue-soft)] text-[var(--trace-blue)] border border-[var(--trace-blue)]/30",
+  },
+  mitigation: {
+    label: "MITIGATED",
+    className: "bg-foreground text-background border border-foreground",
+  },
+};
+
+export function aiScoreBand(score: number): { label: string; className: string } {
+  if (score >= 70)
+    return { label: "AI signatures likely", className: "text-[var(--trace-red)]" };
+  if (score >= 45)
+    return { label: "Gray zone — artifacts present", className: "text-[var(--trace-red)]" };
+  if (score >= 25)
+    return { label: "Low artifact load", className: "text-foreground" };
+  return { label: "No measurable AI signatures", className: "text-[var(--trace-blue)]" };
+}
+
 export const STATUS_CLASSES: Record<JobStatus, string> = {
   QUEUED: "bg-muted text-muted-foreground border border-border",
   RUNNING: "bg-[var(--trace-blue-soft)] text-[var(--trace-blue)] border border-[var(--trace-blue)]/30",

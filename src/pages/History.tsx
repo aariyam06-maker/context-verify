@@ -3,7 +3,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { Input } from "@/components/ui/input";
-import { formatPercent, timeAgo, formatDateTime } from "@/lib/trace";
+import { formatPercent, timeAgo, formatDateTime, type JobMode } from "@/lib/trace";
 import { cn } from "@/lib/utils";
 import { STATUS_CLASSES, type JobStatus } from "@/lib/trace";
 import { Search } from "lucide-react";
@@ -11,13 +11,14 @@ import { useNavigate } from "react-router";
 
 type JobRow = {
   _id: string;
+  mode: JobMode;
   status: JobStatus;
   progress: number;
   createdAt: number;
   errorMessage?: string | null;
   sourceFilename: string;
   editedFilename: string;
-  report: { score: number; overallConfidence: number; degraded: boolean } | null;
+  report: { score: number; overallConfidence: number; degraded: boolean; mode: JobMode; aiScore?: number; mitigated?: boolean } | null;
 };
 
 const FILTERS = ["all", "completed", "degraded", "running", "failed", "queued"] as const;
@@ -119,8 +120,10 @@ export default function History() {
             </thead>
             <tbody>
               {filtered.map((job) => {
-                const target =
-                  job.status === "COMPLETED" || job.status === "DEGRADED" || job.status === "FAILED"
+                const isScan = job.mode === "scan" || job.mode === "mitigation";
+                const target = isScan
+                  ? `/scan/${job._id}`
+                  : job.status === "COMPLETED" || job.status === "DEGRADED" || job.status === "FAILED"
                     ? `/analysis/${job._id}`
                     : `/analysis/${job._id}/progress`;
                 return (
@@ -134,6 +137,9 @@ export default function History() {
                     </td>
                     <td className="max-w-[200px] truncate px-4 py-3 meta-value" title={job.sourceFilename}>
                       {job.sourceFilename}
+                      {isScan && (
+                        <span className="meta-label ml-2 text-[var(--trace-blue)]">SCAN</span>
+                      )}
                     </td>
                     <td className="max-w-[200px] truncate px-4 py-3 meta-value" title={job.editedFilename}>
                       {job.editedFilename}
@@ -149,7 +155,7 @@ export default function History() {
                       </span>
                     </td>
                     <td className="px-4 py-3 meta-value font-semibold">
-                      {job.report ? job.report.score : "—"}
+                      {job.report ? (isScan ? `${job.report.score}%` : job.report.score) : "—"}
                     </td>
                     <td className="px-4 py-3 meta-value text-muted-foreground">
                       {job.report ? formatPercent(job.report.overallConfidence) : "—"}

@@ -9,11 +9,13 @@ import {
   ShieldCheck,
   FilePlus2,
   History,
+  ScanLine,
 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 
 const NAV = [
   { to: "/analysis/new", label: "New Analysis", icon: FilePlus2 },
+  { to: "/scan", label: "AI-Scan", icon: ScanLine },
   { to: "/history", label: "History", icon: History },
 ];
 

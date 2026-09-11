@@ -41,6 +41,8 @@ export type ComponentDelta = {
 export type MitigationResult = {
   blob: Blob;
   url: string;
+  /** Stable filename computed at completion (avoid impure calls during render). */
+  downloadName: string;
   mimeType: string;
   byteSize: number;
   durationSeconds: number;
@@ -207,7 +209,11 @@ export async function runMitigation(opts: {
   const noiseTile = makeNoiseTile(256, 22);
 
   // --- Audio graph (real filters break synthetic speech signatures) --------
-  type AudioGraph = { dest: MediaStreamAudioDestinationNode; teardown: () => void };
+  type AudioGraph = {
+    dest: MediaStreamAudioDestinationNode;
+    audioCtx: AudioContext;
+    teardown: () => void;
+  };
   let audio: AudioGraph | null = null;
   const hasAudio = pre.meta.hasAudio;
   if (hasAudio) {
@@ -238,6 +244,7 @@ export async function runMitigation(opts: {
           .connect(dest);
         audio = {
           dest,
+          audioCtx: ctx,
           teardown: () => void ctx.close().catch(() => undefined),
         };
       }
@@ -338,7 +345,7 @@ export async function runMitigation(opts: {
       "Playback could not start (browser autoplay policy). Press the button again to retry.",
     );
   }
-  if (audio) void audio.dest.context.resume().catch(() => undefined);
+  if (audio) void audio.audioCtx.resume().catch(() => undefined);
 
   recorder.start(1000);
   raf = requestAnimationFrame(onFrame);
@@ -420,6 +427,7 @@ export async function runMitigation(opts: {
   return {
     blob,
     url,
+    downloadName: `contexttrace-cleaned-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`,
     mimeType: blob.type || mimeType || "video/webm",
     byteSize: blob.size,
     durationSeconds: outDuration,

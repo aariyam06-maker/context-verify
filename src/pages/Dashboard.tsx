@@ -10,6 +10,7 @@ import {
   formatPercent,
   timeAgo,
   type JobStatus,
+  type JobMode,
 } from "@/lib/trace";
 import { cn } from "@/lib/utils";
 import { FilePlus2, Search } from "lucide-react";
@@ -17,6 +18,7 @@ import { Link, useNavigate } from "react-router";
 
 type JobRow = {
   _id: string;
+  mode?: JobMode;
   status: JobStatus;
   currentStage?: string | null;
   progress: number;
@@ -170,6 +172,10 @@ function JobRowView({
   onOpen: (path: string) => void;
 }) {
   const open = () => {
+    if (job.mode === "scan" || job.mode === "mitigation") {
+      onOpen(`/scan/${job._id}`);
+      return;
+    }
     if (job.report || job.status === "FAILED") {
       onOpen(`/analysis/${job._id}`);
     } else {
@@ -186,6 +192,9 @@ function JobRowView({
       </td>
       <td className="max-w-[180px] truncate px-4 py-3 meta-value" title={job.sourceFilename}>
         {job.sourceFilename}
+        {(job.mode === "scan" || job.mode === "mitigation") && (
+          <span className="meta-label ml-2 text-[var(--trace-blue)]">SCAN</span>
+        )}
       </td>
       <td className="max-w-[180px] truncate px-4 py-3 meta-value" title={job.editedFilename}>
         {job.editedFilename}
@@ -196,7 +205,7 @@ function JobRowView({
         </span>
       </td>
       <td className="px-4 py-3 meta-value font-semibold">
-        {job.report ? job.report.score : "—"}
+        {job.report ? (job.mode === "scan" || job.mode === "mitigation" ? `${job.report.score}%` : job.report.score) : "—"}
       </td>
       <td className="px-4 py-3 meta-value text-muted-foreground">
         {job.report ? formatPercent(job.report.overallConfidence) : "—"}

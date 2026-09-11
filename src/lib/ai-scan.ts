@@ -123,7 +123,7 @@ export type ScanResult = {
   meta: {
     width: number;
     height: number;
-    fpsEstimate: number | null;
+    fpsEstimate?: number;
     hasAudio: boolean;
   };
 };
@@ -600,7 +600,6 @@ export function analyzeFrames(frames: FrameRecord[], meta: {
     meta: {
       width: meta.width,
       height: meta.height,
-      fpsEstimate: null,
       hasAudio: meta.hasAudio,
     },
   };

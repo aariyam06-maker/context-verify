@@ -14,6 +14,8 @@ import {
   X,
   AlertTriangle,
   ArrowRight,
+  ScanLine,
+  GitCompareArrows,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -49,6 +51,7 @@ export default function NewAnalysis() {
   const [dragSlot, setDragSlot] = useState<Slot | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [gateMessage, setGateMessage] = useState<string | null>(null);
+  const [mode, setMode] = useState<"compare" | "scan">("compare");
   // Guards against a slow validation overwriting a newer upload in the same slot.
   const tokenRef = useRef<Record<Slot, number>>({ source: 0, edited: 0 });
 
@@ -173,11 +176,59 @@ export default function NewAnalysis() {
           <h1 className="display-lg mt-2 text-4xl">New Analysis</h1>
         </div>
         <p className="meta-label max-w-xs leading-5 text-right">
-          Exactly two videos: the original material and its edited derivative.
+          {mode === "compare"
+            ? "Exactly two videos: the original material and its edited derivative."
+            : "One video only: artifact forensics run entirely in your browser."}
         </p>
       </div>
 
-      <div className="mt-8 grid gap-px border bg-border lg:grid-cols-2">
+      {/* Mode switcher */}
+      <div className="mt-6 flex border">
+        <button
+          type="button"
+          onClick={() => setMode("compare")}
+          className={cn(
+            "inline-flex items-center gap-2 border-r px-4 py-2.5 text-sm font-medium tracking-tight transition-colors hover:bg-secondary",
+            mode === "compare" && "bg-foreground text-background hover:bg-foreground",
+          )}
+        >
+          <GitCompareArrows className="size-4" />
+          Compare source vs. edited
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("scan")}
+          className={cn(
+            "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium tracking-tight transition-colors hover:bg-secondary",
+            mode === "scan" && "bg-foreground text-background hover:bg-foreground",
+          )}
+        >
+          <ScanLine className="size-4" />
+          AI-Scan single video
+        </button>
+      </div>
+
+      {mode === "scan" ? (
+        <section className="mt-px border bg-card p-8">
+          <p className="meta-label font-semibold text-[var(--trace-blue)]">AI CONTENT SCAN</p>
+          <h2 className="display-lg mt-2 text-2xl">
+            No source video? Scan one video directly.
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Upload a single video and ContextTrace measures six forensic
+            components (blockiness, temporal flicker, saturation deviation,
+            texture uniformity, compression noise, spectral energy) to estimate
+            how much of the footage carries AI-generation artifacts — with the
+            percentage, per-component breakdown, and timestamps of the most
+            indicative frames. If traces are found, you can generate a cleaned
+            derivative with the AI-trace mitigation pass.
+          </p>
+          <Button size="lg" className="mt-6 h-12 px-8" onClick={() => navigate("/scan")}>
+            Open AI-Scan Workbench <ArrowRight className="size-4" />
+          </Button>
+        </section>
+      ) : (
+      <div className="mt-px grid gap-px border bg-border lg:grid-cols-2">
         <UploadPanel
           slot="source"
           title="SOURCE VIDEO"
@@ -201,6 +252,7 @@ export default function NewAnalysis() {
           missing={attempted && slots.edited.status !== "valid"}
         />
       </div>
+      )}
 
       {/* Requirements strip */}
       <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 border bg-secondary px-4 py-3">
