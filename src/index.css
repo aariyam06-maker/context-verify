@@ -195,6 +195,125 @@
     width: 4px;
     background: var(--trace-red);
   }
+
+  /* ——— Landing motion system ———————————————————————————————— */
+
+  /* Infinite horizontal ticker (duplicated track shifted -50%) */
+  .marquee-track {
+    animation: ct-marquee 42s linear infinite;
+  }
+  .marquee-track-fast {
+    animation: ct-marquee 26s linear infinite;
+  }
+  .marquee-track:hover,
+  .marquee-track-fast:hover {
+    animation-play-state: paused;
+  }
+  @keyframes ct-marquee {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(-50%, 0, 0);
+    }
+  }
+
+  /* Vertical scan sweep over the comparison preview */
+  .ct-scan-sweep {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      var(--trace-red-soft),
+      transparent
+    );
+    animation: ct-scan 3.2s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes ct-scan {
+    0% {
+      transform: translateY(-56px);
+      opacity: 0;
+    }
+    12% {
+      opacity: 1;
+    }
+    88% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(240px);
+      opacity: 0;
+    }
+  }
+
+  /* Blinking terminal cursor for typed lines */
+  .ct-caret::after {
+    content: "▍";
+    margin-left: 0.125em;
+    color: var(--trace-red);
+    animation: ct-blink 1.05s steps(1) infinite;
+  }
+  @keyframes ct-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  /* Ghost outline display text */
+  .ct-outline {
+    color: transparent;
+    -webkit-text-stroke: 1px var(--border);
+  }
+  .ct-outline-strong {
+    color: transparent;
+    -webkit-text-stroke: 1.5px var(--muted-foreground);
+  }
+
+  /* Slow drift for floating accent layers */
+  .ct-drift {
+    animation: ct-drift 9s ease-in-out infinite alternate;
+  }
+  @keyframes ct-drift {
+    from {
+      transform: translate3d(0, -6px, 0) rotate(0.001deg);
+    }
+    to {
+      transform: translate3d(0, 8px, 0) rotate(0.35deg);
+    }
+  }
+
+  /* Specimen-card hover: lift + red rule grows in */
+  .ct-specimen {
+    transition:
+      transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .ct-specimen:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 18px 40px -18px oklch(0.18 0.01 260 / 0.35);
+  }
+  .ct-specimen .ct-specimen-rule {
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+  .ct-specimen:hover .ct-specimen-rule {
+    transform: scaleX(1);
+  }
+}
+
+/* Respect reduced-motion for the CSS-driven loops */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track,
+  .marquee-track-fast,
+  .ct-scan-sweep,
+  .ct-drift {
+    animation: none;
+  }
 }
 
 /* Custom scrollbar — thin, square, unobtrusive */
