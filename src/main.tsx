@@ -8,6 +8,7 @@ import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { motion } from "framer-motion";
 import "./index.css";
 
 // Lazy load route components for better code splitting
@@ -20,7 +21,47 @@ const AnalysisProgress = lazy(() => import("./pages/AnalysisProgress.tsx"));
 const AnalysisReport = lazy(() => import("./pages/AnalysisReport.tsx"));
 const History = lazy(() => import("./pages/History.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
+const Legal = lazy(() => import("./pages/Legal.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+
+/** Document title per route (centralized so pages stay lean). */
+function titleForPath(pathname: string): string {
+  if (pathname === "/") return "ContextTrace — Source vs. Edit Analysis";
+  if (pathname.startsWith("/auth")) return "Sign in · ContextTrace";
+  if (pathname.startsWith("/analysis/new")) return "New Analysis · ContextTrace";
+  if (/^\/analysis\/[^/]+\/progress/.test(pathname))
+    return "Analysis Progress · ContextTrace";
+  if (/^\/analysis\/[^/]+/.test(pathname)) return "Analysis Report · ContextTrace";
+  if (pathname.startsWith("/scan")) return "AI-Scan · ContextTrace";
+  if (pathname.startsWith("/history")) return "Analysis History · ContextTrace";
+  if (pathname.startsWith("/admin")) return "Admin · ContextTrace";
+  if (pathname.startsWith("/legal/privacy")) return "Privacy · ContextTrace";
+  if (pathname.startsWith("/legal/terms")) return "Terms of use · ContextTrace";
+  if (pathname.startsWith("/legal/research")) return "Methodology · ContextTrace";
+  if (pathname.startsWith("/legal")) return "Legal · ContextTrace";
+  return "Page not found · ContextTrace";
+}
+
+/** Fade/slide-in transition on every route change, plus per-route document
+ *  title and scroll restoration. Exit animations are intentionally omitted
+ *  so lazy chunks never block navigation. */
+function PageTransition({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  useEffect(() => {
+    document.title = titleForPath(location.pathname);
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+  return (
+    <motion.div
+      key={location.pathname}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -125,78 +166,82 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route
-                path="/auth"
-                element={<AuthPage redirectAfterAuth="/dashboard" />}
-              />
-              <Route
-                path="/dashboard"
-                element={
-                  <RequireAuth>
-                    <Dashboard />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/analysis/new"
-                element={
-                  <RequireAuth>
-                    <NewAnalysis />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/scan"
-                element={
-                  <RequireAuth>
-                    <ScanWorkbench />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/scan/:jobId"
-                element={
-                  <RequireAuth>
-                    <ScanWorkbench />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/analysis/:jobId/progress"
-                element={
-                  <RequireAuth>
-                    <AnalysisProgress />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/analysis/:jobId"
-                element={
-                  <RequireAuth>
-                    <AnalysisReport />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/history"
-                element={
-                  <RequireAuth>
-                    <History />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/admin"
-                element={
-                  <RequireRole role="admin">
-                    <Admin />
-                  </RequireRole>
-                }
-              />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <PageTransition>
+              <Routes>
+                <Route path="/" element={<Landing />} />
+                <Route
+                  path="/auth"
+                  element={<AuthPage redirectAfterAuth="/dashboard" />}
+                />
+                <Route path="/legal/:doc" element={<Legal />} />
+                <Route path="/legal" element={<Legal />} />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <RequireAuth>
+                      <Dashboard />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/analysis/new"
+                  element={
+                    <RequireAuth>
+                      <NewAnalysis />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/scan"
+                  element={
+                    <RequireAuth>
+                      <ScanWorkbench />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/scan/:jobId"
+                  element={
+                    <RequireAuth>
+                      <ScanWorkbench />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/analysis/:jobId/progress"
+                  element={
+                    <RequireAuth>
+                      <AnalysisProgress />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/analysis/:jobId"
+                  element={
+                    <RequireAuth>
+                      <AnalysisReport />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/history"
+                  element={
+                    <RequireAuth>
+                      <History />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/admin"
+                  element={
+                    <RequireRole role="admin">
+                      <Admin />
+                    </RequireRole>
+                  }
+                />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </PageTransition>
           </Suspense>
         </BrowserRouter>
         <Toaster />

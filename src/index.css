@@ -141,6 +141,12 @@
     @apply bg-background text-foreground;
     font-family: var(--font-stack);
     -webkit-font-smoothing: antialiased;
+    /* Reserve scrollbar space so full-height pages don't shift on navigate */
+    scrollbar-gutter: stable;
+  }
+  ::selection {
+    background: var(--trace-red);
+    color: white;
   }
   button:not([disabled]),
   [role="button"]:not([disabled]) {

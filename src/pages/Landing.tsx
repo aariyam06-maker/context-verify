@@ -989,7 +989,7 @@ export default function Landing() {
       {/* ————— FOOTER ————— */}
       <footer className="border-t bg-background">
         <div className="mx-auto max-w-7xl px-6 py-14">
-          <div className="grid gap-10 md:grid-cols-[1.4fr_1fr_1fr]">
+          <div className="grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
             <div>
               <div className="flex items-center gap-3">
                 <svg viewBox="0 0 64 64" className="size-7" aria-hidden>
@@ -1020,6 +1020,14 @@ export default function Landing() {
                 <li><a className="text-muted-foreground transition-colors hover:text-foreground" href="#capabilities">Capabilities</a></li>
                 <li><a className="text-muted-foreground transition-colors hover:text-foreground" href="#method">Method</a></li>
                 <li><a className="text-muted-foreground transition-colors hover:text-foreground" href="#scope">Limitations</a></li>
+              </ul>
+            </div>
+            <div>
+              <p className="meta-label">Legal</p>
+              <ul className="mt-4 space-y-2.5 text-sm">
+                <li><Link className="text-muted-foreground transition-colors hover:text-foreground" to="/legal/privacy">Privacy</Link></li>
+                <li><Link className="text-muted-foreground transition-colors hover:text-foreground" to="/legal/terms">Terms of use</Link></li>
+                <li><Link className="text-muted-foreground transition-colors hover:text-foreground" to="/legal/research">Methodology</Link></li>
               </ul>
             </div>
           </div>
