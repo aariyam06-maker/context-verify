@@ -122,6 +122,33 @@ const schema = defineSchema(
       startedAt: v.optional(v.number()),
       completedAt: v.optional(v.number()),
       createdAt: v.number(),
+
+      // Transient per-job evidence buffers exchanged between pipeline stages
+      // (cleared after analysis is persisted to the domain tables).
+      sourceSegmentsBuffer: v.optional(
+        v.array(
+          v.object({
+            index: v.number(),
+            startTime: v.number(),
+            endTime: v.number(),
+            text: v.string(),
+            confidence: v.number(),
+          }),
+        ),
+      ),
+      editedSegmentsBuffer: v.optional(
+        v.array(
+          v.object({
+            index: v.number(),
+            startTime: v.number(),
+            endTime: v.number(),
+            text: v.string(),
+            confidence: v.number(),
+          }),
+        ),
+      ),
+      sourceOcrBuffer: v.optional(v.array(v.string())),
+      editedOcrBuffer: v.optional(v.array(v.string())),
     })
       .index("by_owner_created", ["ownerId", "createdAt"])
       .index("by_status", ["status"]),
