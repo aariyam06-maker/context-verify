@@ -219,7 +219,14 @@ def build_clip_corpus(
     hard_fraction: float = 0.4,
     seed: int = RNG_SEED,
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
-    """Clip-level corpus: one 19-dim vector per clip (the product granularity)."""
+    """Clip-level corpus: one vector per clip. Each clip's vector is the
+    per-frame means (20 frame features) plus three cross-frame scalars.
+
+    Cross-frame scalars:
+      - layout_persistence: 1 - cv(luma_mean) across frames (scene persistence).
+      - flicker_consistency: std(temporal_flicker) across frames.
+      - noise_coupling: mean(noise_luma_corr) across frames (shot-noise physics).
+    """
     rng = np.random.default_rng(seed)
     vecs: List[np.ndarray] = []
     ys: List[int] = []
@@ -238,10 +245,6 @@ def build_clip_corpus(
             means = X.mean(axis=0)
             flicker_consistency = float(X[:, 1].std())
             noise_coupling = float(X[:, 12].mean())
-            # Layout persistence: re-render is costly, so approximate from the
-            # stored frame features: luma_mean stability across frames.
-            # (Real low-freq persistence correlates with luma_mean stability
-            # for these generators; keeps corpus build time bounded.)
             layout_persistence = 1.0 - float(X[:, 8].std()) / (float(X[:, 8].mean()) + 1e-6)
             vec = np.concatenate(
                 [means, [layout_persistence, flicker_consistency, noise_coupling]]
@@ -259,7 +262,7 @@ def build_corpus(
     hard_fraction: float = 0.35,
     seed: int = RNG_SEED,
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
-    """Build the full corpus. Returns (X, y, meta) with X shape (n, 12)."""
+    """Build the full per-frame corpus. Returns (X, y, meta) with X shape (n, 20)."""
     rng = np.random.default_rng(seed)
     Xs: List[np.ndarray] = []
     ys: List[int] = []

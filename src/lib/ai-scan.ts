@@ -17,7 +17,11 @@ export type ScanComponentId =
   | "saturation_dev"
   | "texture_uniformity"
   | "compression_noise"
-  | "frequency_energy";
+  | "frequency_energy"
+  | "glcm_contrast"
+  | "edge_coherence"
+  | "chroma_aberration"
+  | "ringing";
 
 export type ScanComponent = {
   id: ScanComponentId;
@@ -69,6 +73,34 @@ export const SCAN_COMPONENTS: ScanComponent[] = [
       "Mid/high-frequency energy distribution; synthetic footage often shows a distinctive spectral falloff.",
     higherIsAiLike: true,
   },
+  {
+    id: "glcm_contrast",
+    label: "GLCM texture contrast",
+    description:
+      "Gray-level co-occurrence contrast over quantized luma; homogenized synthetic texture concentrates the co-occurrence diagonal (low contrast) while natural texture spreads mass.",
+    higherIsAiLike: true,
+  },
+  {
+    id: "edge_coherence",
+    label: "Edge orientation coherence",
+    description:
+      "Fraction of gradient energy aligned to a preferred axis; real scenes and structures contain coherent linear edges, isotropic synthetic patches less so.",
+    higherIsAiLike: false,
+  },
+  {
+    id: "chroma_aberration",
+    label: "Chromatic aberration proxy",
+    description:
+      "High-frequency energy in (R−G) and (B−G) as a proxy for channel-edge structure; real lens chromatic fringing produces structured channel differences.",
+    higherIsAiLike: true,
+  },
+  {
+    id: "ringing",
+    label: "Edge ringing proxy",
+    description:
+      "Overshoot/undershoot sign alternation near strong edges; re-encoding and some synthetic pipelines introduce ringing.",
+    higherIsAiLike: true,
+  },
 ];
 
 export type ComponentVerdict = {
@@ -105,6 +137,10 @@ export type FrameRecord = {
   noise: number;
   spectral: number;
   lumaMean: number;
+  glcmContrast: number;
+  edgeCoherence: number;
+  chromaAberration: number;
+  ringing: number;
 };
 
 export type ScanProgress = {
@@ -204,6 +240,10 @@ export async function sampleFrames(
         prevLuma && prevLumaMean !== null
           ? measureFlicker(gray, prevLuma, lumaMean, prevLumaMean)
           : 0;
+      const glcmContrast = glcmContrastOf(gray, w, h);
+      const edgeCoherence = edgeOrientationCoherenceOf(gray, w, h);
+      const chromaAberration = chromaticAberrationOf(data, w, h);
+      const ringing = ringingProxyOf(gray, w, h);
 
       frames.push({
         time: t,
@@ -214,6 +254,10 @@ export async function sampleFrames(
         noise,
         spectral,
         lumaMean,
+        glcmContrast,
+        edgeCoherence,
+        chromaAberration,
+        ringing,
       });
 
       prevLuma = gray;
@@ -427,6 +471,124 @@ function measureSpectralEnergy(g: Float32Array, w: number, h: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// v2 image-processing additions — genuinely 2D spatial forensics
+// ---------------------------------------------------------------------------
+
+/** GLCM-style contrast over 16-level quantized luma, 4-connected neighbors. */
+function glcmContrastOf(g: Float32Array, w: number, h: number, bins = 16): number {
+  if (h < 4 || w < 4) return 0;
+  const q = new Int32Array(w * h);
+  for (let i = 0; i < g.length; i++) {
+    let v = Math.floor((g[i] / 256) * bins);
+    if (v < 0) v = 0;
+    if (v >= bins) v = bins - 1;
+    q[i] = v;
+  }
+  const hist = new Float32Array(bins * bins);
+  const idx = (a: number, b: number) => a * bins + b;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w - 1; x++) {
+      hist[idx(q[row + x], q[row + x + 1])]++;
+    }
+  }
+  for (let y = 0; y < h - 1; y++) {
+    const row = y * w;
+    const rowN = (y + 1) * w;
+    for (let x = 0; x < w; x++) {
+      hist[idx(q[row + x], q[rowN + x])]++;
+    }
+  }
+  let s = 0;
+  for (let i = 0; i < hist.length; i++) s += hist[i];
+  if (s <= 0) return 0;
+  let contrast = 0;
+  for (let a = 0; a < bins; a++) {
+    for (let b = 0; b < bins; b++) {
+      const p = hist[a * bins + b] / s;
+      const d = a - b;
+      contrast += d * d * p;
+    }
+  }
+  return contrast / (bins * bins);
+}
+
+/** Ratio of aligned (axis/diagonal) gradient energy to total gradient energy. */
+function edgeOrientationCoherenceOf(g: Float32Array, w: number, h: number): number {
+  if (h < 3 || w < 3) return 0;
+  let total = 0;
+  let aligned = 0;
+  for (let y = 0; y < h - 1; y++) {
+    const row = y * w;
+    const rowN = (y + 1) * w;
+    for (let x = 0; x < w - 1; x++) {
+      const gx = Math.abs(g[row + x + 1] - g[row + x]);
+      const gy = Math.abs(g[rowN + x] - g[row + x]);
+      total += gx + gy;
+      aligned += Math.max(gx, gy);
+    }
+  }
+  if (total <= 0) return 0;
+  return aligned / (total + 1e-9);
+}
+
+/** High-frequency energy of (R-G) and (B-G) as a channel-edge structure proxy. */
+function chromaticAberrationOf(data: Uint8ClampedArray, w: number, h: number): number {
+  function hf(channel: (p: number) => number): number {
+    let s = 0;
+    let n = 0;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const p = y * w * 4 + x * 4;
+        const c = channel(p);
+        const left = channel(p - 4);
+        const right = channel(p + 4);
+        const up = channel(p - w * 4);
+        const dn = channel(p + w * 4);
+        const blur = (left + right + up + dn) / 4;
+        s += Math.abs(c - blur);
+        n++;
+      }
+    }
+    return n ? s / n : 0;
+  }
+  const rg = (p: number) => data[p] - data[p + 1];
+  const bg = (p: number) => data[p + 2] - data[p + 1];
+  return (hf(rg) + hf(bg)) / 2;
+}
+
+/** Overshoot/undershoot ringing near strong edges. */
+function ringingProxyOf(g: Float32Array, w: number, h: number): number {
+  if (h < 5 || w < 5) return 0;
+  let ring = 0;
+  let cnt = 0;
+  const maxSamples = 240;
+  for (let y = 1; y < h - 3 && cnt < maxSamples; y++) {
+    const row = y * w;
+    for (let x = 1; x < w - 3 && cnt < maxSamples; x++) {
+      const gx = Math.abs(g[row + x + 1] - g[row + x]);
+      const gy = Math.abs(g[row + w + x] - g[row + x]);
+      if (gx > 25 || gy > 25) {
+        cnt++;
+        if (x + 3 < w) {
+          const b0 = g[row + x + 1];
+          const b1 = g[row + x + 2];
+          const b2 = g[row + x + 3];
+          if (b0 < b1 && b1 > b2) ring++;
+        }
+        if (y + 3 < h) {
+          const b0 = g[row + w + x];
+          const b1 = g[row + 2 * w + x];
+          const b2 = g[row + 3 * w + x];
+          if (b0 < b1 && b1 > b2) ring++;
+        }
+      }
+    }
+  }
+  return cnt > 0 ? ring / cnt : 0;
+}
+
+// ---------------------------------------------------------------------------
 // Aggregation → per-component verdicts, findings, and the AI score
 // ---------------------------------------------------------------------------
 
@@ -525,19 +687,20 @@ export function analyzeFrames(frames: FrameRecord[], meta: {
 
   // Findings: components whose median/85p breach calibration midpoints.
   const findings: ComponentFinding[] = [];
+  const valByComponent: Record<string, number[]> = {
+    blockiness: blockinessVals,
+    temporal_flicker: flickerVals,
+    saturation_dev: satVals,
+    texture_uniformity: textureVals,
+    compression_noise: noiseVals,
+    frequency_energy: spectralVals,
+    glcm_contrast: pick("glcmContrast"),
+    edge_coherence: pick("edgeCoherence"),
+    chroma_aberration: pick("chromaAberration"),
+    ringing: pick("ringing"),
+  };
   for (const c of comps) {
-    const vals =
-      c.id === "temporal_flicker"
-        ? flickerVals
-        : c.id === "blockiness"
-          ? blockinessVals
-          : c.id === "saturation_dev"
-            ? satVals
-            : c.id === "texture_uniformity"
-              ? textureVals
-              : c.id === "compression_noise"
-                ? noiseVals
-                : spectralVals;
+    const vals = valByComponent[c.id] ?? [];
     if (vals.length === 0 || c.score < 0.35) continue;
 
     const thr = percentile(vals, 50 + c.score * 45);
@@ -550,7 +713,7 @@ export function analyzeFrames(frames: FrameRecord[], meta: {
     const severity: ComponentFinding["severity"] =
       c.score >= 0.75 ? "high" : c.score >= 0.55 ? "medium" : "low";
 
-    const comp = SCAN_COMPONENTS.find((x) => x.id === c.id)!;
+    const comp = SCAN_COMPONENTS.find((x) => x.id === c.id) ?? null;
     findings.push({
       componentId: c.id,
       label: c.label,
@@ -559,27 +722,32 @@ export function analyzeFrames(frames: FrameRecord[], meta: {
       timestamp: frames[Math.min(top.i, frames.length - 1)].time,
       frameValue: top.v,
       breachPct,
-      explanation: `${comp.description} Measured ${c.summary}. ${breachPct}% of sampled frames breach the component threshold; most indicative frame at ${frames[top.i].time.toFixed(2)}s.`,
+      explanation: `${comp ? comp.description : ""} Measured ${c.summary}. ${breachPct}% of sampled frames breach the component threshold; most indicative frame at ${frames[top.i].time.toFixed(2)}s.`,
     });
   }
 
   // Weighted aggregate; low frame counts or missing audio reduce confidence
   // but never silently boost the score (no evidence pollution).
   const weights: Record<ScanComponentId, number> = {
-    blockiness: 0.18,
-    temporal_flicker: 0.22,
-    saturation_dev: 0.12,
-    texture_uniformity: 0.18,
-    compression_noise: 0.15,
-    frequency_energy: 0.15,
+    blockiness: 0.14,
+    temporal_flicker: 0.18,
+    saturation_dev: 0.10,
+    texture_uniformity: 0.14,
+    compression_noise: 0.12,
+    frequency_energy: 0.12,
+    glcm_contrast: 0.08,
+    edge_coherence: 0.06,
+    chroma_aberration: 0.06,
+    ringing: 0.10,
   };
   let weighted = 0;
   let wsum = 0;
   for (const c of comps) {
-    weighted += weights[c.id] * c.score;
-    wsum += weights[c.id];
+    const w = weights[c.id] ?? 0;
+    weighted += w * c.score;
+    wsum += w;
   }
-  const aiScore = Math.round((weighted / wsum) * 100);
+  const aiScore = Math.round((weighted / (wsum || 1)) * 100);
 
   const frameConfidence = Math.min(1, frames.length / 24);
   const audioPenalty = meta.hasAudio ? 0 : 0.1;
@@ -629,14 +797,17 @@ export function planMitigation(result: ScanResult): MitigationPlan {
   if (targets.includes("temporal_flicker")) {
     passes.push("Temporal stabilization pass smoothing inter-frame luma deltas");
   }
-  if (targets.includes("texture_uniformity")) {
+  if (targets.includes("texture_uniformity") || targets.includes("glcm_contrast")) {
     passes.push("Micro-texture reinjection to break up homogenized regions");
   }
-  if (targets.includes("saturation_dev")) {
+  if (targets.includes("saturation_dev") || targets.includes("chroma_aberration")) {
     passes.push("Chroma re-mapping toward natural-video saturation envelope");
   }
-  if (targets.includes("frequency_energy")) {
-    passes.push("Spectral reshaping of mid/high-frequency energy");
+  if (targets.includes("frequency_energy") || targets.includes("ringing")) {
+    passes.push("Spectral/edge reshaping of mid/high-frequency energy and ringing");
+  }
+  if (targets.includes("edge_coherence")) {
+    passes.push("Edge-structure pass to restore coherent linear gradients");
   }
   if (passes.length === 0) {
     passes.push("Light global denoise + re-encode (preventative)");

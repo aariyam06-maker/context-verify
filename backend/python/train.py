@@ -67,7 +67,7 @@ def predict_proba(X: np.ndarray, w: np.ndarray, b: float) -> np.ndarray:
 # src/lib/ai-model.ts; the conformance tests enforce agreement.
 # ---------------------------------------------------------------------------
 
-LAYER_SIZES = [19, 32, 16, 1]
+LAYER_SIZES = [23, 32, 16, 1]  # 20 frame features + 3 cross-frame scalars
 
 
 def _init_mlp(seed: int = 11) -> Dict:

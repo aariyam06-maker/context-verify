@@ -286,9 +286,16 @@ def _ringing_proxy(g: np.ndarray) -> float:
     h, w = g.shape
     if h < 5 or w < 5:
         return 0.0
-    gx = np.abs(np.diff(g, axis=1))
-    gy = np.abs(np.diff(g, axis=0))
-    strong = (gx[:, :-1] > 25) | (gy[:-1, :] > 25)
+    gx = np.abs(np.diff(g, axis=1))          # shape (h, w-1)
+    gy = np.abs(np.diff(g, axis=0))          # shape (h-1, w)
+    # strong edges: shared interior region only
+    gx_inner = gx[:, :-1]                    # (h, w-2)
+    gy_inner = gy[:-1, :]                    # (h-1, w)
+    common_h = min(gx_inner.shape[0], gy_inner.shape[0])
+    common_w = min(gx_inner.shape[1], gy_inner.shape[1])
+    gx_inner = gx_inner[:common_h, :common_w]
+    gy_inner = gy_inner[:common_h, :common_w]
+    strong = (gx_inner > 25) | (gy_inner > 25)
     if not strong.any():
         return 0.0
     # For strong edge columns, check sign alternation in the adjacent band
@@ -356,9 +363,10 @@ def extract_frame_features(
     rgb: Sequence[Sequence[Sequence[float]]],
     prev_gray: Optional[np.ndarray] = None,
 ) -> Tuple[List[float], np.ndarray]:
-    """Compute the fixed-order 12-feature vector for one frame.
+    """Compute the fixed-order feature vector for one frame.
 
     Returns (features, gray) so callers can feed `gray` back as `prev_gray`.
+    Feature order is shared across Python, JS, and Java; do not reorder.
     """
     g = to_gray(rgb)
 
@@ -379,6 +387,11 @@ def extract_frame_features(
     temporal_whiteness = (
         _temporal_whiteness(g, prev_gray) if prev_gray is not None else 0.0
     )
+    # v2 image-processing additions: genuinely 2D spatial forensics.
+    glcm_contrast = _glcm_contrast(g)
+    edge_coherence = _edge_orientation_coherence(g)
+    chroma_aberration = _chromatic_aberration(rgb)
+    ringing = _ringing_proxy(g)
 
     feats = [
         blockiness,
@@ -397,6 +410,10 @@ def extract_frame_features(
         blocking_anisotropy,
         residual_kurtosis,
         temporal_whiteness,
+        glcm_contrast,
+        edge_coherence,
+        chroma_aberration,
+        ringing,
     ]
     return feats, g
 
@@ -418,4 +435,8 @@ FEATURE_NAMES = [
     "blocking_anisotropy",
     "residual_kurtosis",
     "temporal_whiteness",
+    "glcm_contrast",
+    "edge_coherence",
+    "chroma_aberration",
+    "ringing",
 ]

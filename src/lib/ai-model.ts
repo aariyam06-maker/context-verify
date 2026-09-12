@@ -32,6 +32,10 @@ export const FRAME_FEATURE_NAMES = [
   "blocking_anisotropy",
   "residual_kurtosis",
   "temporal_whiteness",
+  "glcm_contrast",
+  "edge_coherence",
+  "chroma_aberration",
+  "ringing",
 ] as const;
 
 export const CLIP_FEATURE_NAMES = [
@@ -79,6 +83,10 @@ export function extractFrameFeatures(
   const anisotropy = blockingAnisotropyOf(g, w, h);
   const kurt = residualKurtosisOf(g, w, h);
   const whiteness = prevGray ? temporalWhitenessOf(g, prevGray, w, h) : 0;
+  const glcmContrast = glcmContrastOf(g, w, h);
+  const edgeCoherence = edgeOrientationCoherenceOf(g, w, h);
+  const chromaAberration = chromaticAberrationOf(rgb, w, h);
+  const ringing = ringingProxyOf(g, w, h);
 
   return {
     features: [
@@ -98,6 +106,10 @@ export function extractFrameFeatures(
       anisotropy,
       kurt,
       whiteness,
+      glcmContrast,
+      edgeCoherence,
+      chromaAberration,
+      ringing,
     ],
     gray: g,
   };
@@ -412,6 +424,124 @@ function temporalWhitenessOf(
   const sdB = Math.sqrt(Math.max(0, sBB / m - (sB / m) ** 2));
   if (sdA < 1e-9 || sdB < 1e-9) return 0;
   return cov / (sdA * sdB);
+}
+
+// ---------------------------------------------------------------------------
+// v2 image-processing additions (parity with backend/python/features.py)
+// ---------------------------------------------------------------------------
+
+function glcmContrastOf(g: Float64Array, w: number, h: number, bins = 16): number {
+  if (h < 4 || w < 4) return 0;
+  // quantize luma to bins levels
+  const q = new Int32Array(w * h);
+  for (let i = 0; i < g.length; i++) {
+    let v = Math.floor((g[i] / 256) * bins);
+    if (v < 0) v = 0;
+    if (v >= bins) v = bins - 1;
+    q[i] = v;
+  }
+  // build 2D co-occurrence histogram (horizontal + vertical neighbors)
+  const hist = new Float64Array(bins * bins);
+  const idx = (a: number, b: number) => a * bins + b;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w - 1; x++) {
+      hist[idx(q[row + x], q[row + x + 1])]++;
+    }
+  }
+  for (let y = 0; y < h - 1; y++) {
+    const row = y * w;
+    const rowN = (y + 1) * w;
+    for (let x = 0; x < w; x++) {
+      hist[idx(q[row + x], q[rowN + x])]++;
+    }
+  }
+  let s = 0;
+  for (let i = 0; i < hist.length; i++) s += hist[i];
+  if (s <= 0) return 0;
+  let contrast = 0;
+  for (let a = 0; a < bins; a++) {
+    for (let b = 0; b < bins; b++) {
+      const p = hist[a * bins + b] / s;
+      const d = a - b;
+      contrast += d * d * p;
+    }
+  }
+  return contrast / (bins * bins);
+}
+
+function edgeOrientationCoherenceOf(g: Float64Array, w: number, h: number): number {
+  if (h < 3 || w < 3) return 0;
+  let total = 0;
+  let aligned = 0;
+  for (let y = 0; y < h - 1; y++) {
+    const row = y * w;
+    const rowN = (y + 1) * w;
+    for (let x = 0; x < w - 1; x++) {
+      const gx = Math.abs(g[row + x + 1] - g[row + x]);
+      const gy = Math.abs(g[rowN + x] - g[row + x]);
+      total += gx + gy;
+      aligned += Math.max(gx, gy);
+    }
+  }
+  if (total <= 0) return 0;
+  return aligned / (total + 1e-9);
+}
+
+function chromaticAberrationOf(rgb: ArrayLike<number>, w: number, h: number): number {
+  // high-frequency energy of (R - G) and (B - G) as a proxy for channel-edge structure
+  function hf(channel: (p: number) => number): number {
+    let s = 0;
+    let n = 0;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const c = channel(y * w * 4 + x * 4);
+        const left = channel(y * w * 4 + (x - 1) * 4);
+        const right = channel(y * w * 4 + (x + 1) * 4);
+        const up = channel((y - 1) * w * 4 + x * 4);
+        const dn = channel((y + 1) * w * 4 + x * 4);
+        const blur = (left + right + up + dn) / 4;
+        s += Math.abs(c - blur);
+        n++;
+      }
+    }
+    return n ? s / n : 0;
+  }
+  const rg = (p: number) => rgb[p] - rgb[p + 1];
+  const bg = (p: number) => rgb[p + 2] - rgb[p + 1];
+  return (hf(rg) + hf(bg)) / 2;
+}
+
+function ringingProxyOf(g: Float64Array, w: number, h: number): number {
+  if (h < 5 || w < 5) return 0;
+  // find strong edge pixels and measure sign alternation nearby
+  let ring = 0;
+  let cnt = 0;
+  const maxSamples = 240;
+  for (let y = 1; y < h - 3 && cnt < maxSamples; y++) {
+    const row = y * w;
+    for (let x = 1; x < w - 3 && cnt < maxSamples; x++) {
+      const gx = Math.abs(g[row + x + 1] - g[row + x]);
+      const gy = Math.abs(g[row + w + x] - g[row + x]);
+      if (gx > 25 || gy > 25) {
+        cnt++;
+        // horizontal band: look for overshoot pattern band[0] < band[1] > band[2]
+        if (x + 3 < w) {
+          const b0 = g[row + x + 1];
+          const b1 = g[row + x + 2];
+          const b2 = g[row + x + 3];
+          if (b0 < b1 && b1 > b2) ring++;
+        }
+        if (y + 3 < h) {
+          const b0 = g[row + w + x];
+          const b1 = g[row + 2 * w + x];
+          const b2 = g[row + 3 * w + x];
+          if (b0 < b1 && b1 > b2) ring++;
+        }
+      }
+    }
+  }
+  return cnt > 0 ? ring / cnt : 0;
 }
 
 // ---------------------------------------------------------------------------
