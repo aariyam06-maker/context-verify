@@ -683,6 +683,34 @@ export function analyzeFrames(frames: FrameRecord[], meta: {
       confidence: Math.min(1, frames.length / 20),
       summary: `high/low frequency ratio ${med(spectralVals).toFixed(2)}`,
     },
+    {
+      id: "glcm_contrast",
+      label: "GLCM texture contrast",
+      score: norm(med(pick("glcmContrast")), 0.9, 2.4),
+      confidence: Math.min(1, frames.length / 20),
+      summary: `median GLCM contrast ${med(pick("glcmContrast")).toFixed(2)}`,
+    },
+    {
+      id: "edge_coherence",
+      label: "Edge orientation coherence",
+      score: 1 - norm(med(pick("edgeCoherence")), 0.45, 0.7),
+      confidence: Math.min(1, frames.length / 20),
+      summary: `median aligned/total gradient ratio ${med(pick("edgeCoherence")).toFixed(2)}`,
+    },
+    {
+      id: "chroma_aberration",
+      label: "Chromatic aberration proxy",
+      score: norm(med(pick("chromaAberration")), 0.4, 2.2),
+      confidence: Math.min(1, frames.length / 20),
+      summary: `median (R−G)/(B−G) high-freq proxy ${med(pick("chromaAberration")).toFixed(2)}`,
+    },
+    {
+      id: "ringing",
+      label: "Edge ringing proxy",
+      score: norm(med(pick("ringing")), 0.04, 0.28),
+      confidence: Math.min(1, frames.length / 20),
+      summary: `median strong-edge ringing rate ${med(pick("ringing")).toFixed(3)}`,
+    },
   ];
 
   // Findings: components whose median/85p breach calibration midpoints.
@@ -728,17 +756,19 @@ export function analyzeFrames(frames: FrameRecord[], meta: {
 
   // Weighted aggregate; low frame counts or missing audio reduce confidence
   // but never silently boost the score (no evidence pollution).
+  // Weights are calibration explanations intended to be read alongside the
+  // model reasoning panel, not a second classifier.
   const weights: Record<ScanComponentId, number> = {
     blockiness: 0.14,
-    temporal_flicker: 0.18,
+    temporal_flicker: 0.20,
     saturation_dev: 0.10,
-    texture_uniformity: 0.14,
-    compression_noise: 0.12,
-    frequency_energy: 0.12,
-    glcm_contrast: 0.08,
-    edge_coherence: 0.06,
-    chroma_aberration: 0.06,
-    ringing: 0.10,
+    texture_uniformity: 0.16,
+    compression_noise: 0.14,
+    frequency_energy: 0.14,
+    glcm_contrast: 0.06,
+    edge_coherence: 0.04,
+    chroma_aberration: 0.04,
+    ringing: 0.08,
   };
   let weighted = 0;
   let wsum = 0;

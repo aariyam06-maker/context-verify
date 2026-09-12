@@ -157,6 +157,9 @@ describe("frame-feature conformance (JS vs Python)", () => {
           input: JSON.stringify({ mode: "feats", frames: [FIX1, FIX2] }),
         },
       );
+      if (res.exitCode !== 0) {
+        throw new Error(`cli_score.py failed (exit ${res.exitCode})\nstderr:\n${res.stderr}\nstdout:\n${res.stdout}`);
+      }
       expect(res.exitCode).toBe(0);
       const py = JSON.parse(res.stdout) as { frames: number[][] };
       expect(py.frames.length).toBe(2);

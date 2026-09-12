@@ -60,13 +60,22 @@ export function extractFrameFeatures(
 ): { features: FrameFeatures16; gray: Float64Array } {
   const n = w * h;
   const g = new Float64Array(n);
+  const r = new Float64Array(n);
+  const gr = new Float64Array(n);
+  const b = new Float64Array(n);
   for (let i = 0, p = 0; i < n; i++, p += 4) {
-    g[i] = 0.299 * rgb[p] + 0.587 * rgb[p + 1] + 0.114 * rgb[p + 2];
+    const rr = rgb[p];
+    const gg = rgb[p + 1];
+    const bb = rgb[p + 2];
+    r[i] = rr;
+    gr[i] = gg;
+    b[i] = bb;
+    g[i] = 0.299 * rr + 0.587 * gg + 0.114 * bb;
   }
 
   const blockiness = blockinessOf(g, w, h);
   const flicker = prevGray ? temporalFlicker(g, prevGray) : 0;
-  const saturationDev = saturationDevOf(rgb, w, h);
+  const saturationDev = saturationDevOf(r, gr, b, w, h);
   const [uniformity, textureCv] = textureStats(g, w, h);
   const noise = compressionNoiseOf(g, w, h);
   const spectral = spectralEnergyOf(g, w, h);
@@ -85,7 +94,7 @@ export function extractFrameFeatures(
   const whiteness = prevGray ? temporalWhitenessOf(g, prevGray, w, h) : 0;
   const glcmContrast = glcmContrastOf(g, w, h);
   const edgeCoherence = edgeOrientationCoherenceOf(g, w, h);
-  const chromaAberration = chromaticAberrationOf(rgb, w, h);
+  const chromaAberration = chromaticAberrationOf(r, gr, b, w, h);
   const ringing = ringingProxyOf(g, w, h);
 
   return {
@@ -154,19 +163,19 @@ function temporalFlicker(cur: Float64Array, prev: Float64Array): number {
   return d / n / denom;
 }
 
-function saturationDevOf(rgb: ArrayLike<number>, w: number, h: number): number {
+function saturationDevOf(r: Float64Array, gr: Float64Array, b: Float64Array, w: number, h: number): number {
   // Python subsamples [::4, ::4] (every 4th row/col); JS stride 16 bytes = 4 px
   // within a row, plus every 4th row.
   let sum = 0,
     count = 0;
   for (let y = 0; y < h; y += 4) {
     for (let x = 0; x < w; x += 4) {
-      const p = (y * w + x) * 4;
-      const r = rgb[p],
-        gg = rgb[p + 1],
-        b = rgb[p + 2];
-      const mx = Math.max(r, gg, b);
-      const mn = Math.min(r, gg, b);
+      const i = y * w + x;
+      const rr = r[i],
+        gg = gr[i],
+        bb = b[i];
+      const mx = Math.max(rr, gg, bb);
+      const mn = Math.min(rr, gg, bb);
       if (mx > 0) {
         sum += (mx - mn) / mx;
         count++;
@@ -488,18 +497,19 @@ function edgeOrientationCoherenceOf(g: Float64Array, w: number, h: number): numb
   return aligned / (total + 1e-9);
 }
 
-function chromaticAberrationOf(rgb: ArrayLike<number>, w: number, h: number): number {
+function chromaticAberrationOf(r: Float64Array, gr: Float64Array, b: Float64Array, w: number, h: number): number {
   // high-frequency energy of (R - G) and (B - G) as a proxy for channel-edge structure
-  function hf(channel: (p: number) => number): number {
+  function hf(rr: Float64Array, gg: Float64Array): number {
     let s = 0;
     let n = 0;
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
-        const c = channel(y * w * 4 + x * 4);
-        const left = channel(y * w * 4 + (x - 1) * 4);
-        const right = channel(y * w * 4 + (x + 1) * 4);
-        const up = channel((y - 1) * w * 4 + x * 4);
-        const dn = channel((y + 1) * w * 4 + x * 4);
+        const i = y * w + x;
+        const c = rr[i] - gg[i];
+        const left = rr[i - 1] - gg[i - 1];
+        const right = rr[i + 1] - gg[i + 1];
+        const up = rr[i - w] - gg[i - w];
+        const dn = rr[i + w] - gg[i + w];
         const blur = (left + right + up + dn) / 4;
         s += Math.abs(c - blur);
         n++;
@@ -507,9 +517,7 @@ function chromaticAberrationOf(rgb: ArrayLike<number>, w: number, h: number): nu
     }
     return n ? s / n : 0;
   }
-  const rg = (p: number) => rgb[p] - rgb[p + 1];
-  const bg = (p: number) => rgb[p + 2] - rgb[p + 1];
-  return (hf(rg) + hf(bg)) / 2;
+  return (hf(r, gr) + hf(b, gr)) / 2;
 }
 
 function ringingProxyOf(g: Float64Array, w: number, h: number): number {
