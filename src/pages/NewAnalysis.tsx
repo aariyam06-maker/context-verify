@@ -138,22 +138,28 @@ export default function NewAnalysis() {
 
   const startAnalysis = async () => {
     setAttempted(true);
-    if (!bothValid) {
-      const problems = [
-        missingReason("source"),
-        missingReason("edited"),
-      ].filter((p): p is string => p !== null);
-      setGateMessage(
-        problems.length === 2
-          ? "Upload a source video and an edited video to start the analysis."
-          : problems.join(" · "),
-      );
-      return;
-    }
     setGateMessage(null);
     setSubmitting(true);
     setSubmitError(null);
     try {
+      if (mode === "scan") {
+        navigate("/scan");
+        return;
+      }
+      const sourceOk = slots.source.status === "valid";
+      const editedOk = slots.edited.status === "valid";
+      if (!sourceOk || !editedOk) {
+        const problems = [
+          sourceOk ? null : missingReason("source"),
+          editedOk ? null : missingReason("edited"),
+        ].filter((p): p is string => p !== null);
+        setGateMessage(
+          problems.length === 2
+            ? "Upload a source video and an edited video to start the comparison analysis."
+            : problems.join(" · "),
+        );
+        return;
+      }
       const jobId = (await createJob({
         sourceVideoId: (slots.source as Extract<SlotState, { status: "valid" }>).videoId,
         editedVideoId: (slots.edited as Extract<SlotState, { status: "valid" }>).videoId,
@@ -161,7 +167,7 @@ export default function NewAnalysis() {
       navigate(`/analysis/${jobId}/progress`);
     } catch (e) {
       setSubmitError(
-        e instanceof Error ? e.message : "Failed to create analysis job.",
+        e instanceof Error ? e.message : "Failed to start analysis.",
       );
     } finally {
       setSubmitting(false);
@@ -228,30 +234,30 @@ export default function NewAnalysis() {
           </Button>
         </section>
       ) : (
-      <div className="mt-px grid gap-px border bg-border lg:grid-cols-2">
-        <UploadPanel
-          slot="source"
-          title="SOURCE VIDEO"
-          subtitle="Original / source material"
-          state={slots.source}
-          dragging={dragSlot === "source"}
-          onFile={(f) => void handleFile("source", f)}
-          onDragStateChange={(dragging) => setDragSlot(dragging ? "source" : null)}
-          onRemove={() => setSlot("source", { status: "empty" })}
-          missing={attempted && slots.source.status !== "valid"}
-        />
-        <UploadPanel
-          slot="edited"
-          title="EDITED VIDEO"
-          subtitle="Edited / short-form version"
-          state={slots.edited}
-          dragging={dragSlot === "edited"}
-          onFile={(f) => void handleFile("edited", f)}
-          onDragStateChange={(dragging) => setDragSlot(dragging ? "edited" : null)}
-          onRemove={() => setSlot("edited", { status: "empty" })}
-          missing={attempted && slots.edited.status !== "valid"}
-        />
-      </div>
+        <div className="mt-px grid gap-px border bg-border lg:grid-cols-2">
+          <UploadPanel
+            slot="source"
+            title="SOURCE VIDEO"
+            subtitle="Original / source material"
+            state={slots.source}
+            dragging={dragSlot === "source"}
+            onFile={(f) => void handleFile("source", f)}
+            onDragStateChange={(dragging) => setDragSlot(dragging ? "source" : null)}
+            onRemove={() => setSlot("source", { status: "empty" })}
+            missing={attempted && slots.source.status !== "valid"}
+          />
+          <UploadPanel
+            slot="edited"
+            title="EDITED VIDEO"
+            subtitle="Edited / short-form version"
+            state={slots.edited}
+            dragging={dragSlot === "edited"}
+            onFile={(f) => void handleFile("edited", f)}
+            onDragStateChange={(dragging) => setDragSlot(dragging ? "edited" : null)}
+            onRemove={() => setSlot("edited", { status: "empty" })}
+            missing={attempted && slots.edited.status !== "valid"}
+          />
+        </div>
       )}
 
       {/* Requirements strip */}
@@ -259,12 +265,18 @@ export default function NewAnalysis() {
         <span className="meta-label">Accepted: mp4 · mov · webm · mkv · avi · m4v</span>
         <span className="meta-label">Max 500 MB each</span>
         <span className="meta-label">
-          <span className="text-foreground">{readyCount}/2</span> videos validated
+          {mode === "scan"
+            ? `Videos validated: ${readyCount}/${mode === "scan" ? 1 : 2}`
+            : `Videos validated: ${readyCount}/2`}
         </span>
-        <span className="meta-label">Analysis starts only when both files validate</span>
+        {mode === "scan" ? (
+          <span className="meta-label">Single-video AI scan — no source comparison needed</span>
+        ) : (
+          <span className="meta-label">Comparison starts when both files validate</span>
+        )}
       </div>
 
-      {gateMessage && !bothValid && (
+      {gateMessage && mode === "compare" && !bothValid && (
         <p className="mt-4 border border-[var(--trace-red)]/40 bg-[var(--trace-red-soft)] px-4 py-3 text-sm font-medium text-[var(--trace-red)]">
           {gateMessage}
         </p>
@@ -289,6 +301,10 @@ export default function NewAnalysis() {
           {submitting ? (
             <>
               <Loader2 className="size-4 animate-spin" /> Creating job…
+            </>
+          ) : mode === "scan" ? (
+            <>
+              Open AI-Scan Workbench <ArrowRight className="size-4" />
             </>
           ) : (
             <>

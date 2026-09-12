@@ -117,13 +117,13 @@ export default function AnalysisReport() {
             <Button asChild>
               <Link to="/analysis/new">Start new analysis</Link>
             </Button>
-  </div>
+          </div>
         </div>
       </AppShell>
     );
   }
 
-  const eligible = report != null && events != null && detail != null;
+  const eligible = report != null && events != null;
 
   return (
     <AppShell>
@@ -203,8 +203,8 @@ export default function AnalysisReport() {
               {selectedEvent ? (
                 <EvidencePanel
                   event={selectedEvent}
-                  sourceTranscript={detail.sourceTranscript}
-                  editedTranscript={detail.editedTranscript}
+                  sourceTranscript={detail?.sourceTranscript ?? []}
+                  editedTranscript={detail?.editedTranscript ?? []}
                 />
               ) : (
                 <div className="border bg-card p-10 text-center">
@@ -218,17 +218,19 @@ export default function AnalysisReport() {
             </section>
           </div>
 
-          {/* Synchronized timeline */}
-          <div className="mt-8">
-            <DualTimeline
-              sourceUrl={sourceUrl}
-              editedUrl={editedUrl}
-              events={events}
-              mappings={detail.mappings}
-              selectedEvent={selectedEvent}
-              onSelectEvent={(e) => setUserSelectedId(e._id)}
-            />
-          </div>
+          {/* Synchronized timeline — only for compare jobs with both videos */}
+          {job.mode === "compare" && srcKey && editKey && (
+            <div className="mt-8">
+              <DualTimeline
+                sourceUrl={sourceUrl}
+                editedUrl={editedUrl}
+                events={events ?? []}
+                mappings={detail?.mappings ?? []}
+                selectedEvent={selectedEvent}
+                onSelectEvent={(e) => setUserSelectedId(e._id)}
+              />
+            </div>
+          )}
 
           {/* Technical metadata */}
           <section className="mt-8 border bg-card p-6">
