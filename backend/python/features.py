@@ -197,6 +197,121 @@ def _temporal_whiteness(
     return float(np.corrcoef(a.ravel(), b.ravel())[0, 1])
 
 
+def _glcm_contrast(g: np.ndarray, bins: int = 16, d: int = 1) -> float:
+    """Gray-level co-occurrence contrast over 4-connected neighbors.
+
+    Quantize luma into `bins` levels, build the 2D co-occurrence histogram
+    for horizontal + vertical neighbors, then return the contrast index
+    sum_{i,j} (i-j)^2 * p(i,j). Homogenized synthetic texture tends to have
+    a concentrated diagonal (low contrast); natural texture spreads mass.
+    """
+    h, w = g.shape
+    if h < 4 or w < 4:
+        return 0.0
+    q = np.clip((g / 256.0 * bins).astype(np.int32), 0, bins - 1)
+    hist = np.zeros((bins, bins), dtype=np.float64)
+    # horizontal neighbors
+    hist[q[:, :-1], q[:, 1:]] += 1
+    # vertical neighbors
+    hist[q[:-1, :], q[1:, :]] += 1
+    s = hist.sum()
+    if s <= 0:
+        return 0.0
+    p = hist / s
+    ii, jj = np.mgrid[0:bins, 0:bins]
+    contrast = float(((ii - jj) ** 2 * p).sum())
+    return contrast / (bins**2)
+
+
+def _edge_orientation_coherence(g: np.ndarray) -> float:
+    """Ratio of structured (axis-aligned + diagonal) edge energy to total edge energy.
+
+    Camera / natural scenes often contain strong linear structures (horizons,
+    buildings, object contours). Purely spectral synthetic patches tend to have
+    more isotropic, less coherent gradients. We measure the fraction of gradient
+    energy aligned to the 0/90/45/135 directions vs total gradient magnitude.
+    """
+    h, w = g.shape
+    if h < 3 or w < 3:
+        return 0.0
+    gx = np.abs(np.diff(g, axis=1))
+    gy = np.abs(np.diff(g, axis=0))
+    gx = gx[:-1, :] if gx.shape[0] > gy.shape[0] else gx
+    gy = gy[:, :-1] if gy.shape[1] > gx.shape[1] else gy
+    # align shapes
+    m = min(gx.shape[0], gy.shape[0], w - 1)
+    n = min(gx.shape[1], gy.shape[1], h - 1)
+    gx = gx[:m, :n]
+    gy = gy[:m, :n]
+    mag = gx + gy
+    total = float(mag.sum())
+    if total <= 0:
+        return 0.0
+    # aligned energy: take max of gx vs gy per pixel (preferred axis)
+    aligned = float(np.maximum(gx, gy).sum())
+    return aligned / (total + 1e-9)
+
+
+def _chromatic_aberration(rgb: Sequence[Sequence[Sequence[float]]]) -> float:
+    """RGB-plane misalignment proxy: mean |R - G| and |B - G| structure.
+
+    Real lens chromatic aberration creates small but structured channel
+    differences correlated with edges. Flat synthetic renders often have
+    near-identical channels (low structured difference). We measure the
+    high-frequency content of (R - G) as a proxy for channel-edge structure.
+    """
+    arr = np.asarray(rgb, dtype=np.float64)
+    r = arr[:, :, 0]
+    gg = arr[:, :, 1]
+    b = arr[:, :, 2]
+    rg = r - gg
+    bg = b - gg
+    # high-frequency energy of the channel difference (proxy for edge color fringing)
+    h, w = rg.shape
+    if h < 3 or w < 3:
+        return 0.0
+    def hf(x: np.ndarray) -> float:
+        return float(np.abs(x[1:-1, 1:-1] - (x[1:-1, :-2] + x[1:-1, 2:] + x[:-2, 1:-1] + x[2:, 1:-1]) / 4.0).mean())
+    return (hf(rg) + hf(bg)) / 2.0
+
+
+def _ringing_proxy(g: np.ndarray) -> float:
+    """Estimate overshoot/undershoot ringing near strong edges.
+
+    For each strong horizontal/vertical edge pixel, measure the sign
+    alternation in the neighborhood (ringing = alternating overshoot).
+    Re-encoded and some synthetic pipelines introduce ringing; clean
+    generative output often does not.
+    """
+    h, w = g.shape
+    if h < 5 or w < 5:
+        return 0.0
+    gx = np.abs(np.diff(g, axis=1))
+    gy = np.abs(np.diff(g, axis=0))
+    strong = (gx[:, :-1] > 25) | (gy[:-1, :] > 25)
+    if not strong.any():
+        return 0.0
+    # For strong edge columns, check sign alternation in the adjacent band
+    rows, cols = np.where(strong)
+    n = min(len(rows), 240)
+    idx = np.linspace(0, len(rows) - 1, n).astype(np.int32)
+    ring = 0.0
+    cnt = 0
+    for k in idx:
+        y, x = rows[k], cols[k]
+        if x + 3 < w:
+            band = g[y, x + 1 : x + 4]
+            if band[0] < band[1] and band[1] > band[2]:
+                ring += 1
+            cnt += 1
+        if y + 3 < h:
+            band = g[y + 1 : y + 4, x]
+            if band[0] < band[1] and band[1] > band[2]:
+                ring += 1
+            cnt += 1
+    return cnt > 0 and ring / cnt or 0.0
+
+
 def _blockiness_std(g: np.ndarray) -> float:
     """Std of per-row-band blockiness — measures *spatial consistency* of blocking."""
     h, w = g.shape

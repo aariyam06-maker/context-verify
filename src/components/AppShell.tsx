@@ -10,6 +10,7 @@ import {
   FilePlus2,
   History,
   ScanLine,
+  Stethoscope,
 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 
@@ -19,7 +20,7 @@ const NAV = [
   { to: "/history", label: "History", icon: History },
 ];
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, showDiagnostics }: { children: React.ReactNode; showDiagnostics?: boolean }) {
   const { user, signOut } = useAuth();
   const location = useLocation();
 
@@ -94,6 +95,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </p>
         </div>
       </footer>
+      {showDiagnostics && (
+        <div className="border-t bg-secondary/40 px-6 py-3">
+          <p className="meta-label inline-flex items-center gap-1.5 text-[var(--trace-blue)]">
+            <Stethoscope className="size-3" /> Diagnostics · model reasoning visible
+          </p>
+          <p className="meta-label mt-1 text-muted-foreground">
+            Scores are forensic indicators with stated uncertainty, not proof of AI authorship.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

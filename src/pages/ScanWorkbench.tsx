@@ -13,6 +13,7 @@ import {
   type ScanProgress,
   type MitigationPlan,
 } from "@/lib/ai-scan";
+import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 import { runMitigation, type MitigationResult } from "@/lib/mitigation";
 import {
   aiScoreBand,
@@ -469,6 +470,9 @@ export default function ScanWorkbench() {
               </div>
               <div className="p-6">
                 <p className="meta-label">Component breakdown</p>
+                <p className="text-xs text-muted-foreground">
+                  Each component is normalized to 0..1 against documented calibration anchors (approximations from natural-video baselines). The weighted mean × 100 is the reported score.
+                </p>
                 <div className="mt-3 space-y-3">
                   {result.components.map((c) => (
                     <div key={c.id}>
@@ -489,6 +493,19 @@ export default function ScanWorkbench() {
                   ))}
                 </div>
               </div>
+            </div>
+            <div className="border-t bg-secondary/60 px-4 py-2">
+              <DiagnosticsPanel
+                components={result.components.map((c) => ({
+                  id: c.id,
+                  label: c.label,
+                  score: c.score,
+                  confidence: c.confidence,
+                  summary: c.summary,
+                }))}
+                aiScore={result.aiScore}
+                confidence={result.confidence}
+              />
             </div>
             <p className="border-t bg-secondary/60 px-4 py-2 meta-value text-muted-foreground">
               Measured from {result.analyzedFrames} decoded frames across {formatDuration(result.durationSeconds)} of footage. Artifact signatures indicate generation/processing traces — not proof of AI authorship.
