@@ -1,0 +1,167 @@
+"""ContextTrace - one command to set up and run everything.
+
+    python start.py            install what is missing, then start all services
+    python start.py --train    (re)build datasets + train both models, then start
+    python start.py --test     run the backend test-suite and the acceptance tests
+    python start.py --no-browser
+
+Services
+    http://localhost:3000   web app (React)            <- users
+    http://localhost:8000   REST API (FastAPI, /docs)
+    http://localhost:3751   developer console (models, accuracy, live runs)
+
+Demo logins (also shown on the sign-in page)
+    demo@contexttrace.app  / DemoTrace@2026   (analyst)
+    admin@contexttrace.app / AdminTrace@2026  (admin)
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.request
+import venv
+import webbrowser
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+VENV = ROOT / ".venv"
+PY = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+NPM = shutil.which("npm.cmd" if os.name == "nt" else "npm") or shutil.which("npm")
+MODELS = ROOT / "data" / "models"
+PORTS = {"web": 3000, "api": 8000, "dev": 3751}
+
+
+def say(msg: str) -> None:
+    print(f"\033[1;31m>>\033[0m {msg}", flush=True)
+
+
+def run(cmd, **kw) -> None:
+    subprocess.run(cmd, check=True, **kw)
+
+
+def ensure_python() -> None:
+    if sys.version_info < (3, 10):
+        sys.exit("Python 3.10+ is required.")
+    if not PY.exists():
+        say("Creating virtual environment .venv ...")
+        venv.create(VENV, with_pip=True)
+    probe = "import fastapi, sqlalchemy, cv2, sklearn, torch, open_clip, joblib, imageio_ffmpeg, psutil, dotenv, reportlab, argon2, jwt"
+    if subprocess.run([str(PY), "-c", probe], capture_output=True).returncode != 0:
+        say("Installing Python dependencies (first run only, ~1-3 GB incl. CPU PyTorch) ...")
+        run([str(PY), "-m", "pip", "install", "--upgrade", "pip", "-q"])
+        run([str(PY), "-m", "pip", "install", "-q", "-r", str(ROOT / "backend" / "requirements-dev.txt")])
+
+
+def ensure_node() -> None:
+    if not NPM:
+        sys.exit("Node.js 20+ (npm) is required: https://nodejs.org")
+    if not (ROOT / "node_modules" / "vite").exists():
+        say("Installing frontend dependencies (npm install) ...")
+        run([NPM, "install", "--no-audit", "--no-fund"], cwd=ROOT)
+
+
+def train() -> None:
+    steps = [
+        ("Downloading 12 training datasets (~3 GB)", ["tools/datasets/download_datasets.py"]),
+        ("Downloading held-out OOD test set", ["tools/datasets/download_ood.py"]),
+        ("Extracting CLIP / DINOv2 / forensic features", ["tools/ml/extract_features.py"]),
+        ("Training + evaluating the AI detector (25 candidates)", ["tools/ml/train_ai_detector.py"]),
+        ("Synthesising 300 original/tampered pairs", ["tools/ml/build_tamper_pairs.py"]),
+        ("Training + evaluating the tamper-direction model", ["tools/ml/train_tamper.py"]),
+    ]
+    for title, args in steps:
+        say(title + " ...")
+        run([str(PY), "-u", *args], cwd=ROOT)
+
+
+def env() -> dict:
+    e = dict(os.environ)
+    dotenv = ROOT / ".env"
+    if dotenv.exists():
+        for line in dotenv.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.split("=", 1)
+                e.setdefault(k.strip(), v.strip())
+    origins = {f"http://localhost:{PORTS['web']}", f"http://127.0.0.1:{PORTS['web']}", f"http://localhost:{PORTS['dev']}"}
+    origins |= {o for o in e.get("CTXTRACE_ALLOWED_ORIGINS", "").split(",") if o}
+    e["CTXTRACE_ALLOWED_ORIGINS"] = ",".join(sorted(origins))
+    e["DATABASE_URL"] = e.get("DATABASE_URL") if str(e.get("DATABASE_URL", "")).startswith("postgres") else f"sqlite:///{(ROOT / 'data' / 'contexttrace.db').as_posix()}"
+    e["PYTHONIOENCODING"] = "utf-8"
+    e["TOKENIZERS_PARALLELISM"] = "false"
+    e["VITE_API_URL"] = e.get("VITE_API_URL", f"http://localhost:{PORTS['api']}/api")
+    return e
+
+
+def wait(url: str, seconds: int = 120) -> bool:
+    t = time.time()
+    while time.time() - t < seconds:
+        try:
+            with urllib.request.urlopen(url, timeout=2):
+                return True
+        except Exception:
+            time.sleep(1)
+    return False
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Run ContextTrace")
+    ap.add_argument("--train", action="store_true", help="download data and (re)train both models first")
+    ap.add_argument("--test", action="store_true", help="run tests instead of starting the servers")
+    ap.add_argument("--no-browser", action="store_true")
+    a = ap.parse_args()
+
+    ensure_python()
+    if a.test:
+        run([str(PY), "-m", "pytest", "-q", "tests"], cwd=ROOT, env=env())
+        run([str(PY), "-u", "tools/ml/acceptance_tests.py"], cwd=ROOT, env=env())
+        return
+    ensure_node()
+    if a.train or not (MODELS / "ai_detector.joblib").exists() or not (MODELS / "tamper_model.joblib").exists():
+        train()
+
+    e = env()
+    procs = []
+    say("Starting API on :8000, developer console on :3751, web app on :3000 ...")
+    procs.append(subprocess.Popen([str(PY), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(PORTS["api"])], cwd=ROOT / "backend", env=e))
+    procs.append(subprocess.Popen([str(PY), "backend/devdash/app.py"], cwd=ROOT, env={**e, "CTXTRACE_DEV_PORT": str(PORTS["dev"])}))
+    procs.append(subprocess.Popen([NPM, "run", "dev"], cwd=ROOT, env=e))
+
+    def stop(*_):
+        say("Stopping ...")
+        for p in procs:
+            if p.poll() is None:
+                p.terminate()
+        for p in procs:
+            try:
+                p.wait(8)
+            except Exception:
+                p.kill()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, stop)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, stop)
+    ok = wait(f"http://127.0.0.1:{PORTS['api']}/api/health") and wait(f"http://127.0.0.1:{PORTS['web']}")
+    print()
+    say("ContextTrace is running" if ok else "Some services did not respond yet - see the logs above")
+    print(f"     Web app            http://localhost:{PORTS['web']}")
+    print(f"     Developer console  http://localhost:{PORTS['dev']}")
+    print(f"     API docs           http://localhost:{PORTS['api']}/docs")
+    print("     Demo login         demo@contexttrace.app / DemoTrace@2026   (Ctrl+C to stop)\n")
+    if ok and not a.no_browser:
+        webbrowser.open(f"http://localhost:{PORTS['web']}")
+    while True:
+        for p in procs:
+            if p.poll() is not None:
+                say(f"A service exited (code {p.returncode}); shutting down.")
+                stop()
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -7,16 +7,17 @@ import {
   LayoutDashboard,
   LogOut,
   ShieldCheck,
-  FilePlus2,
+  ArrowLeftRight,
   History,
-  ScanLine,
+  ScanSearch,
   Stethoscope,
 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 
 const NAV = [
-  { to: "/analysis/new", label: "New Analysis", icon: FilePlus2 },
-  { to: "/scan", label: "AI-Scan", icon: ScanLine },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/detect", label: "AI Detection", icon: ScanSearch },
+  { to: "/tamper", label: "Tamper Check", icon: ArrowLeftRight },
   { to: "/history", label: "History", icon: History },
 ];
 
@@ -59,7 +60,7 @@ export function AppShell({ children, showDiagnostics }: { children: React.ReactN
                 variant="outline"
                 className="meta-label hidden border-[var(--trace-red)]/40 text-[var(--trace-red)] sm:inline-flex"
               >
-                DEMO
+                v4
               </Badge>
             </Link>
             <nav className="hidden items-center gap-1 md:flex">
@@ -88,10 +89,10 @@ export function AppShell({ children, showDiagnostics }: { children: React.ReactN
       <footer className="border-t">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-6 py-4">
           <p className="meta-label">
-            ContextTrace · AI media-forensics workstation · v1.0.0
+            ContextTrace · AI media-forensics workstation · v4.0
           </p>
           <p className="meta-label">
-            Identifies evidence consistent with contextual change — does not establish intent.
+            Forensic indicators with stated confidence — not legal proof.
           </p>
         </div>
       </footer>

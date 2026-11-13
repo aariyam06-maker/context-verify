@@ -73,12 +73,12 @@ export const MODE_BADGE: Record<JobMode, { label: string; className: string }> =
 
 export function aiScoreBand(score: number): { label: string; className: string } {
   if (score >= 70)
-    return { label: "AI signatures likely", className: "text-[var(--trace-red)]" };
+    return { label: "High AI-artifact score", className: "text-[var(--trace-red)]" };
   if (score >= 45)
-    return { label: "Gray zone — artifacts present", className: "text-[var(--trace-red)]" };
+    return { label: "Intermediate AI-artifact score", className: "text-[var(--trace-red)]" };
   if (score >= 25)
-    return { label: "Low artifact load", className: "text-foreground" };
-  return { label: "No measurable AI signatures", className: "text-[var(--trace-blue)]" };
+    return { label: "Low AI-artifact score", className: "text-foreground" };
+  return { label: "Low measured artifact score", className: "text-[var(--trace-blue)]" };
 }
 
 export const STATUS_CLASSES: Record<JobStatus, string> = {
@@ -141,8 +141,8 @@ export function formatDateTime(ts: number): string {
 // ---------------------------------------------------------------------------
 
 export const DEMO_NOTICE =
-  "DEMO MODE — speech, OCR and visual evidence are synthesized by deterministic simulators; alignment, detection and scoring logic run for real on that evidence.";
+  "Baseline deployment — modality adapters use installed AI models when available; unavailable ASR/OCR/visual models are recorded as degraded evidence rather than treated as positive findings.";
 
 export function isDemoMode(): boolean {
-  return true;
+  return false;
 }

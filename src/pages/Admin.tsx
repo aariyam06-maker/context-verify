@@ -1,5 +1,5 @@
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { AppShell } from "@/components/AppShell";
 import { formatDateTime } from "@/lib/trace";
 import { cn } from "@/lib/utils";
@@ -42,10 +42,8 @@ type AdminOverview = {
 };
 
 export default function Admin() {
-  const data = useQuery(api.admin.adminOverview) as
-    | AdminOverview
-    | null
-    | undefined;
+  const [data, setData] = useState<AdminOverview | null | undefined>(undefined);
+  useEffect(() => { void api.admin.overview().then(setData).catch(() => setData(null)); }, []);
   const navigate = useNavigate();
 
   if (data === undefined) {
@@ -183,9 +181,24 @@ export default function Admin() {
                   {u.name ?? "—"}
                 </td>
                 <td className="px-4 py-3">
-                  <span className="meta-label border px-1.5 py-0.5">
-                    {u.role ?? "user"}
-                  </span>
+                  <select
+                    value={u.role ?? "user"}
+                    className="border bg-background px-2 py-1 text-xs"
+                    onChange={async (e) => {
+                      const role = e.target.value as "user" | "admin";
+                      try {
+                        await api.admin.updateRole(u._id, role);
+                        setData((prev) => prev ? { ...prev, users: prev.users.map((x) => x._id === u._id ? { ...x, role } : x) } : prev);
+                      } catch {
+                        // server remains authoritative; refresh the console on failure
+                        const fresh = await api.admin.overview();
+                        setData(fresh);
+                      }
+                    }}
+                  >
+                    <option value="user">user</option>
+                    <option value="admin">admin</option>
+                  </select>
                 </td>
                 <td className="px-4 py-3 meta-value text-muted-foreground">
                   {formatDateTime(u.createdAt)}

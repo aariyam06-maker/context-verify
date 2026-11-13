@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: contexttrace
+      POSTGRES_USER: contexttrace
+      POSTGRES_PASSWORD: contexttrace
+    ports:
+      - "5432:5432"
+    volumes:
+      - contexttrace_pg:/var/lib/postgresql/data
+
+volumes:
+  contexttrace_pg:

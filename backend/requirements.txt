@@ -1,0 +1,17 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+sqlalchemy>=2.0,<3
+psycopg[binary]>=3.2,<4
+python-multipart>=0.0.20,<1
+pydantic[email]>=2.10,<3
+PyJWT>=2.10,<3
+numpy>=2.1,<3
+opencv-python-headless>=4.10,<5
+reportlab>=4.2,<5
+argon2-cffi>=23.1,<26
+scikit-learn>=1.5,<2
+alembic>=1.15,<2
+python-dotenv>=1.0,<2
+psutil>=5.9,<8
+joblib>=1.3,<2
+imageio-ffmpeg>=0.5,<1

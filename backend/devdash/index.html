@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ContextTrace Dev Console</title>
+<script src="/static/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --mut:#8b949e; --red:#ff5d5d; --blue:#58a6ff; --green:#3fb950; --amber:#d29922; --violet:#bc8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:12px 20px; background:#0d1117ee; border-bottom:1px solid var(--line); backdrop-filter:blur(6px); }
+  h1 { font-size:16px; margin:0; letter-spacing:.2px; } h1 b { color:var(--red); }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:1.4px; color:var(--mut); margin:28px 0 10px; }
+  main { max-width:1400px; margin:0 auto; padding:0 20px 60px; }
+  .pills { display:flex; flex-wrap:wrap; gap:8px; }
+  .pill { border:1px solid var(--line); padding:3px 9px; border-radius:999px; font-size:12px; color:var(--mut); }
+  .pill.ok { color:var(--green); border-color:#3fb95066; } .pill.bad { color:var(--red); border-color:#ff5d5d66; }
+  .grid { display:grid; gap:12px; }
+  .g4 { grid-template-columns:repeat(4,minmax(0,1fr)); } .g3 { grid-template-columns:repeat(3,minmax(0,1fr)); } .g2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  @media (max-width:1000px){ .g4,.g3 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:640px){ .g4,.g3,.g2 { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; }
+  .card h3 { margin:0 0 8px; font-size:13px; font-weight:600; }
+  .card p.sub { margin:-4px 0 10px; color:var(--mut); font-size:12px; }
+  .kpi .v { font-size:28px; font-weight:700; letter-spacing:-.5px; } .kpi .l { color:var(--mut); font-size:12px; } .kpi .s { color:var(--mut); font-size:11px; margin-top:2px; }
+  .chart { position:relative; height:240px; } .chart.tall { height:300px; } .chart.short { height:160px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; } th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mut); font-weight:500; } td.wrap { white-space:normal; }
+  .scroll { overflow:auto; max-height:380px; }
+  .tag { padding:1px 6px; border-radius:4px; font-size:11px; font-weight:600; }
+  .t-red { background:#ff5d5d22; color:var(--red); } .t-blue { background:#58a6ff22; color:var(--blue); } .t-green { background:#3fb95022; color:var(--green); } .t-amber { background:#d2992222; color:var(--amber); } .t-mut { background:#8b949e22; color:var(--mut); }
+  .mono { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+  svg text { fill:var(--fg); font-size:11px; font-family:inherit; }
+  .node rect { fill:#1f2630; stroke:var(--line); } .node.active rect { stroke:var(--red); stroke-width:2; } .node .k { fill:var(--mut); font-size:9.5px; }
+  .edge { stroke:#58a6ff88; stroke-width:1.5; fill:none; marker-end:url(#arr); } .edge.flow { stroke:var(--red); stroke-dasharray:6 5; animation:flow 0.8s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset:-22; } }
+  .muted { color:var(--mut); } .small { font-size:12px; }
+  .cm { display:grid; grid-template-columns:auto 1fr 1fr; gap:4px; font-size:12px; align-items:center; }
+  .cm div.c { padding:10px; text-align:center; border-radius:4px; font-weight:700; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Context<b>Trace</b> · developer console <span class="muted small">:3751</span></h1>
+  <div class="pills" id="pills"><span class="pill">connecting…</span></div>
+</header>
+<main>
+  <h2>Live system</h2>
+  <div class="grid g4" id="kpis"></div>
+  <div class="grid g3" style="margin-top:12px">
+    <div class="card"><h3>Run latency (s) — last runs</h3><div class="chart short"><canvas id="cLatency"></canvas></div></div>
+    <div class="card"><h3>Verdict mix</h3><div class="chart short"><canvas id="cVerdict"></canvas></div></div>
+    <div class="card"><h3>Host CPU / RAM (live)</h3><div class="chart short"><canvas id="cSys"></canvas></div></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <h3>Inference graph <span class="muted small" id="pipeState">idle</span></h3>
+    <p class="sub">Exactly what runs for every request. Red animated edges = stages of the job currently running.</p>
+    <div style="overflow-x:auto"><svg id="pipe" viewBox="0 0 1180 300" width="100%" style="min-width:900px"></svg></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <h3>Recent runs (auto-refresh 3 s)</h3>
+    <div class="scroll"><table id="runs"><thead><tr><th>When</th><th>Service</th><th>File / outcome</th><th>AI %</th><th>Share %</th><th>Conf.</th><th>Latency</th><th>Status</th><th>User</th></tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <h2>Service 1 · AI-generation detector</h2>
+  <div class="grid g4" id="aiKpis"></div>
+  <div class="grid g2" style="margin-top:12px">
+    <div class="card"><h3>Model × feature-set comparison (5-fold grouped CV, AUC)</h3><p class="sub">25 candidates. Selected model highlighted in the KPI row.</p><div class="chart tall"><canvas id="cCompare"></canvas></div></div>
+    <div class="card"><h3>ROC curves</h3><p class="sub">Cross-validated vs. out-of-distribution (never-seen sources)</p><div class="chart tall"><canvas id="cRoc"></canvas></div></div>
+    <div class="card"><h3>Leave-one-source-out accuracy</h3><p class="sub">Each dataset held out entirely, model trained on the other 10</p><div class="chart tall"><canvas id="cLoso"></canvas></div></div>
+    <div class="card"><h3>Leave-one-generator-out recall</h3><p class="sub">Can it catch an AI generator it has never seen?</p><div class="chart tall"><canvas id="cLogo"></canvas></div></div>
+    <div class="card"><h3>OOD accuracy per unseen source</h3><div class="chart"><canvas id="cOod"></canvas></div></div>
+    <div class="card"><h3>Calibration (reliability) curve</h3><p class="sub" id="eceTxt"></p><div class="chart"><canvas id="cCal"></canvas></div></div>
+    <div class="card"><h3>Learning curve</h3><p class="sub">CV accuracy vs. amount of training data (3 repeats)</p><div class="chart"><canvas id="cLc"></canvas></div></div>
+    <div class="card"><h3>Most influential forensic signals</h3><p class="sub">Standardised logistic weights (+ = pushes towards AI)</p><div class="chart"><canvas id="cImp"></canvas></div></div>
+    <div class="card"><h3>Confusion matrices</h3><div class="grid g2" id="cms"></div></div>
+    <div class="card"><h3>Robustness: clean vs re-compressed views</h3><div class="chart short"><canvas id="cRob"></canvas></div></div>
+  </div>
+
+  <h2>Service 2 · tamper direction model</h2>
+  <div class="grid g4" id="tKpis"></div>
+  <div class="grid g3" style="margin-top:12px">
+    <div class="card"><h3>Candidate models (grouped CV accuracy)</h3><div class="chart"><canvas id="cTcmp"></canvas></div></div>
+    <div class="card"><h3>Direction accuracy by tamper operation</h3><div class="chart"><canvas id="cTop"></canvas></div></div>
+    <div class="card"><h3>Event localisation recall</h3><p class="sub">Was the specific edit found by the structural analysis?</p><div class="chart"><canvas id="cTev"></canvas></div></div>
+  </div>
+
+  <h2>Acceptance tests · random free-source clips (≤10 s)</h2>
+  <div class="card"><div class="scroll" id="acc"><p class="muted">Run <span class="mono">python tools/ml/acceptance_tests.py</span> to populate.</p></div></div>
+  <p class="muted small" style="margin-top:24px" id="foot"></p>
+</main>
+<script>
+const C = { red:'#ff5d5d', blue:'#58a6ff', green:'#3fb950', amber:'#d29922', violet:'#bc8cff', mut:'#8b949e', line:'#30363d' };
+Chart.defaults.color = C.mut; Chart.defaults.borderColor = C.line; Chart.defaults.font.size = 11; Chart.defaults.animation.duration = 400;
+const charts = {};
+function chart(id, cfg){ if(charts[id]){ charts[id].data = cfg.data; charts[id].update('none'); return; } charts[id] = new Chart(document.getElementById(id), cfg); }
+const pct = v => v==null? '—' : (v*100).toFixed(1)+'%';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function kpi(l, v, s, color){ return `<div class="card kpi"><div class="l">${l}</div><div class="v" style="color:${color||'inherit'}">${v}</div><div class="s">${s||''}</div></div>`; }
+const sysHist = { t:[], cpu:[], ram:[] };
+
+// ---------------------------------------------------------------- pipeline graph
+const NODES = [
+  {id:'in', x:10, y:120, t:'Video upload', k:'mp4/mov/avi · ≤10 s'},
+  {id:'dec', x:160, y:120, t:'Frame sampler', k:'OpenCV · 16 frames + next'},
+  {id:'clip', x:330, y:30, t:'CLIP ViT-B/32', k:'512-d embedding / frame'},
+  {id:'for', x:330, y:120, t:'Forensics', k:'34 noise/spectrum feats'},
+  {id:'tmp', x:330, y:210, t:'Temporal', k:'optical flow · noise corr.'},
+  {id:'agg', x:520, y:120, t:'Video vector', k:'mean · std · temporal sim'},
+  {id:'clf', x:690, y:70, t:'Video classifier', k:'selected model'},
+  {id:'frm', x:690, y:170, t:'Frame classifier', k:'logistic · per frame'},
+  {id:'cal', x:860, y:70, t:'Platt calibration', k:'probability'},
+  {id:'gem', x:860, y:170, t:'Gemini (optional)', k:'2nd opinion · w=0.25'},
+  {id:'out', x:1030, y:30, t:'AI verdict', k:'prob · share · timeline'},
+  {id:'tam', x:1030, y:210, t:'Tamper direction', k:'align · cuts · regions'},
+];
+const EDGES = [['in','dec'],['dec','clip'],['dec','for'],['dec','tmp'],['clip','agg'],['for','agg'],['tmp','agg'],['agg','clf'],['clip','frm'],['for','frm'],['clf','cal'],['cal','out'],['frm','out'],['gem','out'],['frm','tam'],['cal','tam'],['dec','tam']];
+function drawPipe(active){
+  const W=140,H=48, at=Object.fromEntries(NODES.map(n=>[n.id,n]));
+  let s = `<defs><marker id="arr" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#58a6ff"/></marker></defs>`;
+  for(const [a,b] of EDGES){ const p=at[a], q=at[b]; const x1=p.x+W, y1=p.y+H/2, x2=q.x, y2=q.y+H/2; const mx=(x1+x2)/2;
+    s += `<path class="edge ${active.has(a)&&active.has(b)?'flow':''}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2-2},${y2}"/>`; }
+  for(const n of NODES){ s += `<g class="node ${active.has(n.id)?'active':''}" transform="translate(${n.x},${n.y})"><rect width="${W}" height="${H}" rx="6"/><text x="10" y="20" style="font-weight:600">${n.t}</text><text class="k" x="10" y="36">${n.k}</text></g>`; }
+  document.getElementById('pipe').innerHTML = s;
+}
+const STAGE_NODES = {
+  detect: { loading_models:['in','dec'], frame_sampling_and_features:['in','dec','clip','for','tmp','agg','clf','frm','cal','gem','out'], report_generation:['cal','out','frm','gem'] },
+  tamper: { loading_models:['in','dec'], ai_analysis_and_alignment:['in','dec','clip','for','tmp','agg','clf','frm','cal','out','tam'], report_generation:['tam','out','cal','frm'] },
+};
+
+// ---------------------------------------------------------------- live
+async function refreshLive(){
+  let d; try { d = await (await fetch('/api/live')).json(); } catch(e){ document.getElementById('pills').innerHTML = '<span class="pill bad">dev console API unreachable</span>'; return; }
+  const api = d.api||{}; const m = api.models||{};
+  document.getElementById('pills').innerHTML = [
+    `<span class="pill ${api.ok?'ok':'bad'}">API :8000 ${api.ok?'up':'down'}</span>`,
+    `<span class="pill ${m.aiDetector?'ok':'bad'}">AI model ${m.aiDetector?'loaded':'missing'}</span>`,
+    `<span class="pill ${m.tamper?'ok':'bad'}">tamper model ${m.tamper?'loaded':'missing'}</span>`,
+    `<span class="pill ${api.gemini?'ok':''}">Gemini ${api.gemini?'on':'off'}</span>`,
+    `<span class="pill">CPU ${d.system.cpu.toFixed(0)}% · RAM ${d.system.ramUsedGb}/${d.system.ramTotalGb} GB</span>`]
+    .join('');
+  const runs = d.runs, done = runs.filter(r=>r.status==='COMPLETED'), failed = runs.filter(r=>r.status==='FAILED');
+  const lat = done.filter(r=>r.seconds!=null).map(r=>r.seconds); const avg = lat.length? lat.reduce((a,b)=>a+b,0)/lat.length : null;
+  const det = done.filter(r=>r.mode==='detect'), aiFlag = det.filter(r=>r.verdict==='ai_generated').length;
+  const tam = done.filter(r=>r.mode==='tamper'), tFlag = tam.filter(r=>r.verdict==='tampered').length;
+  document.getElementById('kpis').innerHTML = kpi('Runs (last 200)', runs.length, `${done.length} completed · ${failed.length} failed · ${runs.length-done.length-failed.length} active`)
+    + kpi('Success rate', runs.length? pct(done.length/Math.max(1,done.length+failed.length)) : '—', `${d.users} users · ${d.videos} videos stored`, C.green)
+    + kpi('Mean latency', avg==null?'—':avg.toFixed(1)+' s', lat.length? `p95 ${lat.sort((a,b)=>a-b)[Math.floor(lat.length*.95)]?.toFixed(1)} s` : '', C.blue)
+    + kpi('Flag rates', `${det.length?Math.round(100*aiFlag/det.length):0}% / ${tam.length?Math.round(100*tFlag/tam.length):0}%`, 'AI-generated / tampered verdicts', C.red);
+  const last = done.slice(0,40).reverse();
+  chart('cLatency', { type:'bar', data:{ labels:last.map((r,i)=>i+1), datasets:[{ label:'latency s', data:last.map(r=>r.seconds), backgroundColor:last.map(r=>r.mode==='detect'?C.blue:C.violet) }] }, options:{ maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{display:false} } } });
+  const vc = { 'AI-generated':aiFlag, 'Authentic':det.length-aiFlag, 'Tampered pair':tFlag, 'Clean/unrelated pair':tam.length-tFlag };
+  chart('cVerdict', { type:'doughnut', data:{ labels:Object.keys(vc), datasets:[{ data:Object.values(vc), backgroundColor:[C.red,C.blue,C.amber,C.green], borderWidth:0 }] }, options:{ maintainAspectRatio:false, plugins:{ legend:{ position:'right' } } } });
+  sysHist.t.push(new Date().toLocaleTimeString()); sysHist.cpu.push(d.system.cpu); sysHist.ram.push(d.system.ramPct); for(const k of ['t','cpu','ram']) if(sysHist[k].length>60) sysHist[k].shift();
+  chart('cSys', { type:'line', data:{ labels:[...sysHist.t], datasets:[{label:'CPU %', data:[...sysHist.cpu], borderColor:C.red, pointRadius:0, tension:.3},{label:'RAM %', data:[...sysHist.ram], borderColor:C.blue, pointRadius:0, tension:.3}] }, options:{ maintainAspectRatio:false, scales:{ y:{min:0,max:100}, x:{display:false} } } });
+  const running = runs.find(r=>r.status==='RUNNING');
+  const act = running ? new Set((STAGE_NODES[running.mode]||{})[running.stage]||[]) : new Set();
+  document.getElementById('pipeState').textContent = running ? `running ${running.mode} · ${running.stage} · ${running.progress}%` : 'idle';
+  drawPipe(act);
+  const rows = runs.slice(0,60).map(r=>{
+    const when = r.created ? new Date(r.created).toLocaleTimeString() : '';
+    let what = r.mode==='detect' ? esc(r.file) : (r.verdict==='tampered' ? `original <b>${(r.original||'').toUpperCase()}</b> · tampered <b>${(r.tampered||'').toUpperCase()}</b> · ${r.events} events` : esc(r.verdict||''));
+    if(r.mode==='detect' && r.verdict) what += ` → <span class="tag ${r.verdict==='ai_generated'?'t-red':'t-blue'}">${r.verdict==='ai_generated'?'AI':'real'}</span>`;
+    const st = {COMPLETED:'t-green',FAILED:'t-red',RUNNING:'t-amber',QUEUED:'t-mut'}[r.status]||'t-mut';
+    const ai = r.mode==='detect' ? r.aiProbability : (r.aiA!=null? `${r.aiA} / ${r.aiB}`:null);
+    return `<tr><td>${when}</td><td>${r.mode}</td><td class="wrap">${what}${r.error?`<br><span class="muted">${esc(r.error).slice(0,140)}</span>`:''}</td><td>${ai??'—'}</td><td>${r.aiShare??'—'}</td><td>${r.confidence!=null?(r.confidence*100).toFixed(0)+'%':'—'}</td><td>${r.seconds!=null?r.seconds.toFixed(1)+'s':'—'}</td><td><span class="tag ${st}">${r.status}${r.status==='RUNNING'?' '+r.progress+'%':''}</span></td><td class="muted">${esc(r.owner)}</td></tr>`;
+  }).join('');
+  document.querySelector('#runs tbody').innerHTML = rows || '<tr><td colspan="9" class="muted">No runs yet — analyse a video on http://localhost:3000</td></tr>';
+  document.getElementById('foot').textContent = `console uptime ${d.uptime}s · refreshed ${new Date(d.now).toLocaleTimeString()}`;
+}
+
+// ---------------------------------------------------------------- model research
+async function refreshModels(){
+  const d = await (await fetch('/api/models')).json();
+  const e = d.ai;
+  if(e){
+    const sel = e.selected||{};
+    document.getElementById('aiKpis').innerHTML =
+      kpi('Selected model', `${sel.model}`, `${sel.features} · ${e.version}`, C.violet)
+      + kpi('Cross-validated accuracy', pct(e.cv_selected?.accuracy), `AUC ${e.cv_selected?.auc?.toFixed(3)} · ${e.n_train_videos} videos × 2 views`, C.blue)
+      + kpi('Unseen-source (OOD) accuracy', pct(e.ood?.overall_clean?.accuracy), `AUC ${e.ood?.overall_clean?.auc?.toFixed(3)} · ${e.n_ood_videos} videos, 6 new sources`, C.green)
+      + kpi('Calibration error (ECE)', e.calibration? e.calibration.ece_calibrated.toFixed(3) : '—', e.calibration? `raw ${e.calibration.ece_raw.toFixed(3)} → Platt`:'' , C.amber);
+    const fsets = [...new Set(e.comparison.map(r=>r.features))], mods = [...new Set(e.comparison.map(r=>r.model))];
+    const pal = [C.blue,C.red,C.green,C.amber,C.violet];
+    chart('cCompare', { type:'bar', data:{ labels:fsets, datasets:mods.map((m,i)=>({ label:m, data:fsets.map(f=>e.comparison.find(r=>r.features===f&&r.model===m)?.cv?.auc), backgroundColor:pal[i%5] })) }, options:{ maintainAspectRatio:false, scales:{ y:{ min:0.5, max:1 } } } });
+    const roc = (r)=>r.fpr.map((x,i)=>({x, y:r.tpr[i]}));
+    chart('cRoc', { type:'scatter', data:{ datasets:[ {label:`CV (AUC ${e.roc_cv.auc.toFixed(3)})`, data:roc(e.roc_cv), showLine:true, borderColor:C.blue, pointRadius:0}, {label:`OOD (AUC ${e.ood?.overall_clean?.auc?.toFixed(3)})`, data:roc(e.ood.roc), showLine:true, borderColor:C.red, pointRadius:0}, {label:'chance', data:[{x:0,y:0},{x:1,y:1}], showLine:true, borderColor:C.mut, borderDash:[4,4], pointRadius:0} ] }, options:{ maintainAspectRatio:false, scales:{ x:{min:0,max:1,title:{display:true,text:'false-positive rate'}}, y:{min:0,max:1,title:{display:true,text:'true-positive rate'}} } } });
+    const key = `${sel.features}|${sel.model}`; const lo = (e.loso[key]||Object.values(e.loso)[0]).per_source;
+    chart('cLoso', { type:'bar', data:{ labels:Object.keys(lo), datasets:[{ label:'held-out accuracy', data:Object.values(lo).map(v=>v.accuracy), backgroundColor:Object.values(lo).map(v=>v.label==='ai'?C.red:C.blue) }] }, options:{ indexAxis:'y', maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{min:0,max:1} } } });
+    chart('cLogo', { type:'bar', data:{ labels:Object.keys(e.logo), datasets:[{ label:'recall on unseen generator', data:Object.values(e.logo).map(v=>v.recall), backgroundColor:C.red }] }, options:{ indexAxis:'y', maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{min:0,max:1} } } });
+    const op = e.ood.per_source;
+    chart('cOod', { type:'bar', data:{ labels:Object.keys(op).map(k=>`${k} (${op[k].label}, n=${op[k].n})`), datasets:[{ data:Object.values(op).map(v=>v.accuracy), backgroundColor:Object.values(op).map(v=>v.label==='ai'?C.red:C.blue) }] }, options:{ maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{min:0,max:1} } } });
+    const cal = e.calibration.curve; document.getElementById('eceTxt').textContent = `Expected calibration error ${e.calibration.ece_calibrated.toFixed(3)} after Platt scaling`;
+    chart('cCal', { type:'scatter', data:{ datasets:[ {label:'model', data:cal.mean_predicted.map((x,i)=>({x,y:cal.frac_positive[i]})), showLine:true, borderColor:C.amber, backgroundColor:C.amber}, {label:'perfect', data:[{x:0,y:0},{x:1,y:1}], showLine:true, borderColor:C.mut, borderDash:[4,4], pointRadius:0} ] }, options:{ maintainAspectRatio:false, scales:{ x:{min:0,max:1,title:{display:true,text:'predicted P(AI)'}}, y:{min:0,max:1,title:{display:true,text:'observed fraction AI'}} } } });
+    chart('cLc', { type:'line', data:{ labels:e.learning_curve.map(r=>r.videos), datasets:[{ label:'CV accuracy', data:e.learning_curve.map(r=>r.accuracy_mean), borderColor:C.green, backgroundColor:C.green, tension:.3 }] }, options:{ maintainAspectRatio:false, scales:{ x:{title:{display:true,text:'training videos'}}, y:{min:0.5,max:1} } } });
+    const imp = e.forensic_importance.slice(0,14);
+    chart('cImp', { type:'bar', data:{ labels:imp.map(r=>r.feature), datasets:[{ data:imp.map(r=>r.weight), backgroundColor:imp.map(r=>r.weight>0?C.red:C.blue) }] }, options:{ indexAxis:'y', maintainAspectRatio:false, plugins:{legend:{display:false}} } });
+    const cm = (t, m) => { const [[tn,fp],[fn,tp]] = m; const tot = tn+fp+fn+tp; const sh = v => `rgba(88,166,255,${0.15+0.85*v/Math.max(1,tot)})`;
+      return `<div><p class="small muted">${t}</p><div class="cm"><span></span><span class="small muted">pred real</span><span class="small muted">pred AI</span><span class="small muted">real</span><div class="c" style="background:${sh(tn)}">${tn}</div><div class="c" style="background:rgba(255,93,93,${0.15+0.85*fp/Math.max(1,tot)})">${fp}</div><span class="small muted">AI</span><div class="c" style="background:rgba(255,93,93,${0.15+0.85*fn/Math.max(1,tot)})">${fn}</div><div class="c" style="background:${sh(tp)}">${tp}</div></div></div>`; };
+    document.getElementById('cms').innerHTML = cm('Cross-validated (all views)', e.cv_selected.confusion) + cm('Out-of-distribution (clean)', e.ood.overall_clean.confusion);
+    const rb = e.robustness;
+    chart('cRob', { type:'bar', data:{ labels:['accuracy','AUC','recall (AI)','specificity'], datasets:[ {label:'clean', data:[rb.clean.accuracy, rb.clean.auc, rb.clean.recall, rb.clean.confusion[0][0]/(rb.clean.confusion[0][0]+rb.clean.confusion[0][1])], backgroundColor:C.blue}, {label:'re-compressed', data:[rb.degraded.accuracy, rb.degraded.auc, rb.degraded.recall, rb.degraded.confusion[0][0]/(rb.degraded.confusion[0][0]+rb.degraded.confusion[0][1])], backgroundColor:C.amber} ] }, options:{ maintainAspectRatio:false, scales:{ y:{min:0.5,max:1} } } });
+  }
+  const t = d.tamper;
+  if(t){
+    const sel = t.comparison[t.selected];
+    document.getElementById('tKpis').innerHTML = kpi('Selected model', t.selected, t.version, C.violet) + kpi('Direction accuracy (CV)', pct(sel.accuracy), `AUC ${sel.auc.toFixed(3)} · ${t.n_pairs} pairs`, C.blue)
+      + kpi('Chain re-encode / equal CRF', `${pct(t.accuracy_by_condition.chain?.accuracy)} / ${pct(t.accuracy_by_condition.equal?.accuracy)}`, 'tampered re-encoded vs. identical encoding', C.green)
+      + kpi('Pairs detected as related', pct(t.relatedness_recall), 'alignment found shared footage', C.amber);
+    chart('cTcmp', { type:'bar', data:{ labels:Object.keys(t.comparison), datasets:[{ data:Object.values(t.comparison).map(v=>v.accuracy), backgroundColor:Object.keys(t.comparison).map(k=>k===t.selected?C.red:C.blue) }] }, options:{ maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{min:0.5,max:1} } } });
+    const ops = t.accuracy_by_operation;
+    chart('cTop', { type:'bar', data:{ labels:Object.keys(ops).map(k=>`${k} (${ops[k].n})`), datasets:[{ data:Object.values(ops).map(v=>v.accuracy), backgroundColor:C.violet }] }, options:{ indexAxis:'y', maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{min:0,max:1} } } });
+    const ev = t.event_detection_recall;
+    chart('cTev', { type:'bar', data:{ labels:Object.keys(ev), datasets:[{ data:Object.values(ev).map(v=>v.recall), backgroundColor:C.green }] }, options:{ indexAxis:'y', maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{min:0,max:1} } } });
+  }
+  const a = d.acceptance;
+  if(a){
+    const s = a.summary;
+    let h = `<p>Scenario 1 (AI detection): <b>${s.detect_correct}/${s.detect_total}</b> correct (${pct(s.detect_accuracy)}) · Scenario 2 (tamper): <b>${s.tamper_correct}/${s.tamper_total}</b> correct original/tampered decisions (${pct(s.tamper_accuracy)}) · run ${esc(a.created)}</p>`;
+    h += `<table><thead><tr><th>#</th><th>Scenario</th><th>Clip(s)</th><th>Truth</th><th>Prediction</th><th>Score</th><th>Correct</th><th>Time</th></tr></thead><tbody>` + a.cases.map((c,i)=>`<tr><td>${i+1}</td><td>${esc(c.scenario)}</td><td class="wrap mono small">${esc(c.files)}</td><td>${esc(c.truth)}</td><td>${esc(c.prediction)}</td><td>${esc(c.score)}</td><td><span class="tag ${c.correct?'t-green':'t-red'}">${c.correct?'yes':'no'}</span></td><td>${c.seconds}s</td></tr>`).join('') + '</tbody></table>';
+    document.getElementById('acc').innerHTML = h;
+  }
+}
+drawPipe(new Set());
+refreshLive(); refreshModels();
+setInterval(refreshLive, 3000); setInterval(refreshModels, 30000);
+</script>
+</body>
+</html>
