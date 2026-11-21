@@ -1,0 +1,2 @@
+# Optional browser verification tooling; excluded from runtime requirements.
+playwright==1.65.2

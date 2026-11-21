@@ -56,7 +56,8 @@ def run_job(job_id: str) -> None:
             video = db.get(Video, job.source_video_id)
             detector.load_model()
             _stage(db, job, "frame_sampling_and_features", 25)
-            result = detector.analyze(Path(video.storage_path))
+            inference_mode = "light" if job.model_configuration == "ai_detector:light" else "full"
+            result = detector.analyze(Path(video.storage_path), mode=inference_mode)
             result.pop("_ff", None)
             _stage(db, job, "report_generation", 92)
             score = int(round(result["aiProbability"]))

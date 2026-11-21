@@ -126,7 +126,7 @@ export const api = {
     get: (id: string) => request<JobSummary>(`/jobs/${id}`),
     report: (id: string) => request<JobSummary & { interpretation: string; result: any }>(`/jobs/${id}/report`),
     remove: (id: string) => request<{ ok: boolean }>(`/jobs/${id}`, { method: "DELETE" }),
-    detect: (videoId: string) => request<{ jobId: string }>(`/jobs/detect?videoId=${encodeURIComponent(videoId)}`, { method: "POST" }),
+    detect: (videoId: string, inferenceMode: "full" | "light" = "full") => request<{ jobId: string }>(`/jobs/detect?videoId=${encodeURIComponent(videoId)}&inferenceMode=${inferenceMode}`, { method: "POST" }),
     tamper: (a: string, b: string) => request<{ jobId: string }>(`/jobs/tamper?videoAId=${encodeURIComponent(a)}&videoBId=${encodeURIComponent(b)}`, { method: "POST" }),
     reportDownload: async (id: string, format: "pdf" | "json" = "pdf") => {
       const token = getToken();

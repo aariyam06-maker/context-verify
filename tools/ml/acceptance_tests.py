@@ -70,9 +70,13 @@ def wait(client, h, job_id: str, timeout: int = 600) -> dict:
 
 
 def main():
+    global OUT
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=int(time.time()) % 100000)
+    ap.add_argument("--output-dir", type=Path, help="save a separate evidence run without updating historical records")
     a = ap.parse_args()
+    if a.output_dir:
+        OUT = a.output_dir.resolve()
     rng = random.Random(a.seed)
     nrng = np.random.default_rng(a.seed)
     OUT.mkdir(parents=True, exist_ok=True)
@@ -150,10 +154,11 @@ def main():
                "controls_correct": sum(x["correct"] for x in c), "controls_total": len(c),
                "mean_seconds_detect": float(np.mean([x["seconds"] for x in d])), "mean_seconds_tamper": float(np.mean([x["seconds"] for x in t]))}
     out = {"created": datetime.now(timezone.utc).isoformat(), "summary": summary, "cases": cases}
-    hist = ROOT / "data" / "models" / "acceptance_history.jsonl"
-    with hist.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"created": out["created"], **summary}) + "\n")
-    (ROOT / "data" / "models" / "acceptance_tests.json").write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
+    results_dir = OUT if a.output_dir else ROOT / "data" / "models"
+    if not a.output_dir:
+        with (results_dir / "acceptance_history.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"created": out["created"], **summary}) + "\n")
+    (results_dir / "acceptance_tests.json").write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
     print(json.dumps(summary, indent=1))
 
 

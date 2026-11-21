@@ -22,3 +22,54 @@ data/*.joblib
 !data/artifacts/.gitkeep
 !data/models/.gitkeep
 data/models/*.json
+
+# Local runtime, credentials and generated media
+.env.*
+!.env.example
+!backend/.env.example
+venv/
+.cache/
+**/.cache/
+**/tmp/
+**/temp/
+*.tmp
+*.part
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.m4v
+*.npy
+*.npz
+*.safetensors
+*.pt
+*.pth
+coverage/
+playwright-report/
+test-results/
+# Preserve audit records and manifests explicitly in docs/manifests.
+
+# Research reading copies and deterministic generated evaluation clips
+data/research-papers/
+data/final-localization/
+
+# Local research handoff and historical material
+/docs/
+/documentation/
+/legacy/
+/tools/report/
+/tools/ml/benchmark_inference.py
+/tools/ml/real_world_smoke.py
+/tools/testing/*
+!/tools/testing/browser_verify.py
+!/tools/testing/demo_terminal.py
+/ContextTrace_Project_Report.pdf
+/context_verify_source.zip
+/data/models/acceptance_history.jsonl
+
+# Curated public demo inputs
+!/sample_videos/real_baseline.mp4
+!/sample_videos/real_cut.mp4
+!/sample_videos/veo3.1.mp4
+/models/model_registry.json

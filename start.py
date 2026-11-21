@@ -20,6 +20,7 @@ import argparse
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -44,17 +45,22 @@ def run(cmd, **kw) -> None:
     subprocess.run(cmd, check=True, **kw)
 
 
-def ensure_python() -> None:
+def ensure_python(research: bool = False) -> None:
     if sys.version_info < (3, 10):
         sys.exit("Python 3.10+ is required.")
     if not PY.exists():
         say("Creating virtual environment .venv ...")
         venv.create(VENV, with_pip=True)
-    probe = "import fastapi, sqlalchemy, cv2, sklearn, torch, open_clip, joblib, imageio_ffmpeg, psutil, dotenv, reportlab, argon2, jwt"
+    # Check installation without importing both heavyweight encoder libraries at
+    # every launch. Actual models stay lazy and are exercised by inference tests.
+    modules = ["fastapi", "sqlalchemy", "cv2", "sklearn", "torch", "open_clip", "transformers", "PIL", "joblib", "imageio_ffmpeg", "psutil", "dotenv", "reportlab", "argon2", "jwt"]
+    if research:
+        modules += ["pytest", "pandas", "matplotlib"]
+    probe = f"import importlib.util, sys; sys.exit(any(importlib.util.find_spec(name) is None for name in {modules!r}))"
     if subprocess.run([str(PY), "-c", probe], capture_output=True).returncode != 0:
         say("Installing Python dependencies (first run only, ~1-3 GB incl. CPU PyTorch) ...")
         run([str(PY), "-m", "pip", "install", "--upgrade", "pip", "-q"])
-        run([str(PY), "-m", "pip", "install", "-q", "-r", str(ROOT / "backend" / "requirements-dev.txt")])
+        run([str(PY), "-m", "pip", "install", "-q", "-r", str(ROOT / "backend" / ("requirements-dev.txt" if research else "requirements-inference.txt"))])
 
 
 def ensure_node() -> None:
@@ -94,6 +100,8 @@ def env() -> dict:
     e["PYTHONIOENCODING"] = "utf-8"
     e["TOKENIZERS_PARALLELISM"] = "false"
     e["VITE_API_URL"] = e.get("VITE_API_URL", f"http://localhost:{PORTS['api']}/api")
+    if PORTS["web"] != 3000:
+        e.setdefault("CTXTRACE_VITE_CACHE_DIR", f"node_modules/.vite-{PORTS['web']}")
     return e
 
 
@@ -113,23 +121,47 @@ def main() -> None:
     ap.add_argument("--train", action="store_true", help="download data and (re)train both models first")
     ap.add_argument("--test", action="store_true", help="run tests instead of starting the servers")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--dev-console", action="store_true", help="also start the optional research console")
+    ap.add_argument("--api-port", type=int, default=PORTS["api"])
+    ap.add_argument("--web-port", type=int, default=PORTS["web"])
     a = ap.parse_args()
+    if not all(1 <= port <= 65535 for port in (a.api_port, a.web_port)):
+        ap.error("ports must be between 1 and 65535")
+    PORTS.update(api=a.api_port, web=a.web_port)
 
-    ensure_python()
+    if not a.train and not a.test and not all((MODELS / name).exists() for name in ("ai_detector.joblib", "tamper_model.joblib")):
+        sys.exit("Trained checkpoints are missing. Restore data/models/*.joblib, or explicitly run python start.py --train. Normal startup never downloads datasets or retrains.")
+    if a.train and not (ROOT / "tools/ml/train_ai_detector.py").exists():
+        sys.exit("Training tools are not included in the runtime package. Use the research checkout for --train.")
+    if a.dev_console and not (ROOT / "backend/devdash/app.py").exists():
+        sys.exit("The research console is not included in the runtime package. Omit --dev-console.")
+    if not a.test:
+        required_ports = (PORTS["api"], PORTS["web"]) + ((PORTS["dev"],) if a.dev_console else ())
+        if len(set(required_ports)) != len(required_ports):
+            ap.error("each enabled service needs a different port")
+        for port in required_ports:
+            with socket.socket() as sock:
+                if sock.connect_ex(("127.0.0.1", port)) == 0:
+                    sys.exit(f"Port {port} is already in use. Stop the existing service or use its running app before starting another instance.")
+    ensure_python(research=a.train or a.test)
     if a.test:
         run([str(PY), "-m", "pytest", "-q", "tests"], cwd=ROOT, env=env())
-        run([str(PY), "-u", "tools/ml/acceptance_tests.py"], cwd=ROOT, env=env())
+        if (ROOT / "data/datasets/ood_manifest.csv").is_file():
+            run([str(PY), "-u", "tools/ml/acceptance_tests.py"], cwd=ROOT, env=env())
+        else:
+            say("Dataset-based acceptance replay requires the optional OOD dataset. The bundled browser demo uses sample_videos/.")
         return
     ensure_node()
-    if a.train or not (MODELS / "ai_detector.joblib").exists() or not (MODELS / "tamper_model.joblib").exists():
+    if a.train:
         train()
 
     e = env()
     procs = []
-    say("Starting API on :8000, developer console on :3751, web app on :3000 ...")
+    say(f"Starting API on :{PORTS['api']} and web app on :{PORTS['web']} ...")
     procs.append(subprocess.Popen([str(PY), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(PORTS["api"])], cwd=ROOT / "backend", env=e))
-    procs.append(subprocess.Popen([str(PY), "backend/devdash/app.py"], cwd=ROOT, env={**e, "CTXTRACE_DEV_PORT": str(PORTS["dev"])}))
-    procs.append(subprocess.Popen([NPM, "run", "dev"], cwd=ROOT, env=e))
+    if a.dev_console:
+        procs.append(subprocess.Popen([str(PY), "backend/devdash/app.py"], cwd=ROOT, env={**e, "CTXTRACE_DEV_PORT": str(PORTS["dev"])}))
+    procs.append(subprocess.Popen([NPM, "run", "dev", "--", "--port", str(PORTS["web"]), "--strictPort", "--clearScreen", "false"], cwd=ROOT, env=e))
 
     def stop(*_):
         say("Stopping ...")
@@ -150,7 +182,8 @@ def main() -> None:
     print()
     say("ContextTrace is running" if ok else "Some services did not respond yet - see the logs above")
     print(f"     Web app            http://localhost:{PORTS['web']}")
-    print(f"     Developer console  http://localhost:{PORTS['dev']}")
+    if a.dev_console:
+        print(f"     Developer console  http://localhost:{PORTS['dev']}")
     print(f"     API docs           http://localhost:{PORTS['api']}/docs")
     print("     Demo login         demo@contexttrace.app / DemoTrace@2026   (Ctrl+C to stop)\n")
     if ok and not a.no_browser:

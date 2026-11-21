@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -51,12 +52,12 @@ def _summary(db, job: AnalysisJob) -> dict:
 
 
 @router.post("/detect")
-def create_detect(videoId: str, user: User = Depends(current_user)):
+def create_detect(videoId: str, user: User = Depends(current_user), inferenceMode: Literal["full", "light"] = "full"):
     db = SessionLocal()
     try:
         v = _video(db, user, videoId)
         job = AnalysisJob(owner_id=user.id, source_video_id=v.id, mode="detect", status="QUEUED", current_stage="queued", progress=0,
-                          pipeline_version="contexttrace v4", model_configuration="ai_detector", warnings=[])
+                          pipeline_version="contexttrace v4", model_configuration=f"ai_detector:{inferenceMode}", warnings=[])
         db.add(job); db.commit(); db.refresh(job)
         runner.submit(job.id)
         return {"jobId": job.id}

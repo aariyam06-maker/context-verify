@@ -84,9 +84,13 @@ function useStream(id: string | null | undefined) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!id) return;
+    let active = true;
     let u: string | null = null;
-    void api.videos.stream(id).then((x) => { u = x; setUrl(x); }).catch(() => undefined);
-    return () => { if (u) URL.revokeObjectURL(u); };
+    void api.videos.stream(id).then((x) => {
+      if (!active) { URL.revokeObjectURL(x); return; }
+      u = x; setUrl(x);
+    }).catch(() => undefined);
+    return () => { active = false; if (u) URL.revokeObjectURL(u); };
   }, [id]);
   return url;
 }
@@ -123,10 +127,11 @@ export function DetectView({ r, videoId, compact }: { r: any; videoId?: string |
   return (
     <div className={cn("space-y-6", !compact && "mt-8")}>
       <Verdict ai={ai} label={r.verdictLabel} sub={`${r.confidenceBand} confidence · ${r.media.framesAnalysed} frames analysed over ${r.media.analysedSeconds}s · ${r.media.width}×${r.media.height}`} />
+      <p className="text-sm text-muted-foreground">Forensic model estimate, not proof of origin. Sparse samples cover only the analysed window; brief changes and later edits can be missed. {r.inferenceMode === "light" && "Experimental light sampling uses fewer frames and has not been validated for statistical accuracy."}</p>
       <div className={cn("grid gap-6", !compact && "lg:grid-cols-[1fr_1.2fr]")}>
         <div className="flex flex-wrap items-center justify-around gap-4 border bg-card p-6">
           <Gauge value={r.aiProbability} label="AI-generation probability" tone={ai ? "red" : "blue"} />
-          <Gauge value={r.aiContentShare} label="AI content share of timeline" tone={r.aiContentShare >= 50 ? "red" : "blue"} />
+          <Gauge value={r.aiContentShare} label="AI-like share of sampled points" tone={r.aiContentShare >= 50 ? "red" : "blue"} />
         </div>
         {!compact && url && <video src={url} controls className="aspect-video w-full border bg-black object-contain" />}
       </div>
@@ -195,7 +200,10 @@ function TamperView({ r, job }: { r: any; job: JobSummary }) {
                 <Gauge size={140} value={v.ai.aiProbability} label="AI-generated" tone={v.ai.aiProbability >= 50 ? "red" : "blue"} />
                 <Gauge size={140} value={v.ai.aiContentShare} label="AI content share" tone={v.ai.aiContentShare >= 50 ? "red" : "blue"} />
               </div>
-              <div className="border-t px-4 py-3"><AiTimeline data={v.ai.timeline} height={110} /></div>
+              <div className="border-t px-4 py-3">
+                <AiTimeline data={v.ai.timeline} height={110} intervals={(r.events ?? []).filter((e: any) => (e.in === "original" ? original : tampered) === k && e.start != null && e.end > e.start)} />
+                {r.events?.some((e: any) => (e.in === "original" ? original : tampered) === k && e.start != null && e.end > e.start) && <p className="meta-label">Shaded intervals: estimated temporal edits in this video's time coordinates.</p>}
+              </div>
             </div>
           );
         })}

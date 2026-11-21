@@ -4,6 +4,7 @@ import path from "path";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  cacheDir: process.env.CTXTRACE_VITE_CACHE_DIR,
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(__dirname, "./src") }, dedupe: ["react", "react/jsx-runtime", "react-dom", "react-dom/client"] },
   build: {

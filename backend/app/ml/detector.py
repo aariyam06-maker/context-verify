@@ -116,15 +116,21 @@ def explain(ff: F.FrameFeatures, m: dict, is_ai: bool, top: int = 5) -> list[dic
     return out
 
 
-def analyze(path: Path, use_gemini: bool | None = None) -> dict[str, Any]:
+def analyze(path: Path, use_gemini: bool | None = None, mode: str = "full") -> dict[str, Any]:
     t0 = time.time()
     m = load_model()
     meta = video_io.probe(path)
-    frames, nexts, times, fps = video_io.read_sampled(path, k=FRAMES, max_seconds=MAX_SECONDS)
+    if mode not in {"full", "light"}:
+        raise ValueError("Inference mode must be full or light.")
+    frames, nexts, times, fps = video_io.read_sampled(path, k=min(FRAMES, 8) if mode == "light" else FRAMES, max_seconds=MAX_SECONDS)
     t_dec = time.time()
-    ff = F.features_from_pairs(frames, nexts, times, use_clip=True, use_dino="dino" in m["families"])
+    families = set(m["families"]) | set(m["frame_families"])
+    ff = F.features_from_pairs(frames, nexts, times, use_clip="clip" in families, use_dino="dino" in families)
     t_feat = time.time()
-    return analyze_features(ff, meta, frames, list(times), use_gemini, (t0, t_dec, t_feat))
+    result = analyze_features(ff, meta, frames, list(times), use_gemini, (t0, t_dec, t_feat))
+    result["inferenceMode"] = mode
+    result["samplingWarning"] = "Sparse samples cover only the analysis window; timeline share is not a measured fraction of all video frames."
+    return result
 
 
 def analyze_features(ff: F.FrameFeatures, meta: dict, frames: list, times: list, use_gemini: bool | None = None, clock: tuple | None = None) -> dict[str, Any]:
@@ -166,7 +172,7 @@ def analyze_features(ff: F.FrameFeatures, meta: dict, frames: list, times: list,
         "aiContentShare": round(s["share"] * 100, 1),
         "authenticity": round((1 - p) * 100, 1),
         "verdict": "ai_generated" if is_ai else "authentic",
-        "verdictLabel": ("AI-generated" if is_ai else "Authentic (camera-recorded)"),
+        "verdictLabel": ("Likely AI-generated" if is_ai else "Likely camera-recorded"),
         "confidence": round(conf, 3),
         "confidenceBand": band,
         "rawModelScore": round(s["p_raw"], 4),

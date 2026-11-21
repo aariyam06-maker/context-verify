@@ -99,9 +99,20 @@ def _events(pa: T.PairAnalysis, tampered: str, fp: dict) -> list[dict]:
                     "description": f"A localised region ({pa.region['area']:.1%} of the frame) differs between the two videos while the rest of the frame is identical - "
                                    "consistent with object removal, cloning, or an added caption/overlay."})
     dt, do = tam_t.duration, org_t.duration
-    if dt < do * 0.95 and not any(e["type"] == "removed_segment" for e in out):
-        out.append({"type": "shortened", "title": "Footage removed", "in": "tampered", "severity": "high",
-                    "description": f"The tampered copy is {do - dt:.1f}s shorter than the original ({dt:.1f}s vs {do:.1f}s) although its frames all appear in the original - footage was cut out."})
+    if do - dt >= 0.15:
+        from .temporal_localization import localize_single_deletion
+
+        localized = localize_single_deletion(Path(org_t.path), Path(tam_t.path))
+        if localized["localized"]:
+            # Prefer a supported dense estimate over coarse unmatched-sample
+            # bounds. This changes event reporting only, never direction inputs.
+            out = [e for e in out if e["type"] != "removed_segment"]
+            out.append({"type": "removed_segment", "title": "Removed footage", "in": "original", "severity": "high",
+                        "start": round(localized["start"], 3), "end": round(localized["end"], 3), "localization": localized,
+                        "description": f"Estimated removed interval {_fmt(localized['start'])}-{_fmt(localized['end'])} in the original; boundary resolution approximately {localized['boundary_resolution_seconds']:.2f}s under a single-deletion hypothesis."})
+        elif not any(e["type"] == "removed_segment" for e in out):
+            out.append({"type": "shortened", "title": "Footage removed", "in": "tampered", "severity": "high", "localization": localized,
+                        "description": f"The modified copy is {do - dt:.1f}s shorter ({dt:.1f}s vs {do:.1f}s). Its exact removed interval cannot be established reliably: {localized['reason']}"})
     sp = pa.speed_ratio if tampered == "b" else 1.0 / max(pa.speed_ratio, 1e-3)
     if abs(np.log(max(sp, 1e-3))) > 0.15:
         out.append({"type": "speed_change", "title": "Playback speed altered", "in": "tampered", "severity": "medium",

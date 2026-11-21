@@ -53,9 +53,7 @@ def probe(path: Path) -> dict:
         if fps <= 1e-3 or fps > 240:
             fps = 25.0
         if frames <= 0:
-            frames = 1
-            while cap.read()[0]:
-                frames += 1
+            raise ValueError("Video has no reliable frame count; re-encode it before uploading.")
         duration = frames / fps
         if duration <= 0:
             raise ValueError("Video duration could not be determined.")

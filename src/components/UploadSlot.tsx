@@ -3,7 +3,7 @@ import { FileVideo, UploadCloud, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ACCEPT = ".mp4,.mov,.webm,.mkv,.avi,.m4v,video/*";
-const MAX_MB = 500;
+const MAX_MB = 100;
 
 export function UploadSlot({ label, hint, file, onFile, disabled }: { label: string; hint?: string; file: File | null; onFile: (f: File | null) => void; disabled?: boolean }) {
   const input = useRef<HTMLInputElement>(null);

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
 export default function Detect() {
+  const [inferenceMode, setInferenceMode] = useState<"full" | "light">("full");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +20,7 @@ export default function Detect() {
       setBusy("Uploading…");
       const up = await api.videos.upload(file, "detect");
       setBusy("Starting analysis…");
-      const job = await api.jobs.detect(up.videoId);
+      const job = await api.jobs.detect(up.videoId, inferenceMode);
       navigate(`/result/${job.jobId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
@@ -39,6 +40,12 @@ export default function Detect() {
         <UploadSlot label="Video to analyse" file={file} onFile={setFile} disabled={!!busy} />
         <div className="flex flex-col justify-between gap-6 border bg-card p-6">
           <div className="space-y-3 text-sm">
+            <label className="block font-semibold" htmlFor="sampling-mode">Analysis sampling</label>
+            <select id="sampling-mode" className="w-full border bg-background p-2" value={inferenceMode} disabled={!!busy} onChange={(e) => setInferenceMode(e.target.value as "full" | "light")}>
+              <option value="full">Full (recommended)</option>
+              <option value="light">Light (experimental, fewer samples)</option>
+            </select>
+            <p className="text-muted-foreground">Light mode may miss brief changes. It has only been smoke-tested and may not be faster. Scores are forensic indicators, not proof. Timeline share describes sampled points in the first 10 seconds.</p>
             <p className="font-semibold">What you get</p>
             <ul className="space-y-2 text-muted-foreground">
               <li>• <b className="text-foreground">AI probability</b> — calibrated chance the clip is AI-generated</li>

@@ -32,18 +32,26 @@ async def upload_video(file: UploadFile = File(...), type: str = Form("detect"),
     path = settings.upload_dir / user.id / f"{video_id}{suffix}"
     path.parent.mkdir(parents=True, exist_ok=True)
     size = 0
-    with path.open("wb") as out:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if size > settings.max_upload_mb * 1024 * 1024:
-                path.unlink(missing_ok=True)
-                raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit.")
-            out.write(chunk)
     try:
-        meta = probe_media(path)
-    except Exception as exc:
+        with path.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > settings.max_upload_mb * 1024 * 1024:
+                    raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit.")
+                out.write(chunk)
+        # Decoder/probe work must not block the API event loop.
+        from starlette.concurrency import run_in_threadpool
+        meta = await run_in_threadpool(probe_media, path)
+    except BaseException as exc:
+        # Close the writer before unlinking (required on Windows).
         path.unlink(missing_ok=True)
-        raise HTTPException(400, f"Media validation failed: {exc}")
+        if isinstance(exc, HTTPException):
+            raise
+        if not isinstance(exc, Exception):
+            raise
+        raise HTTPException(400, f"Media validation failed: {exc}") from exc
+    finally:
+        await file.close()
 
     db = SessionLocal()
     try:

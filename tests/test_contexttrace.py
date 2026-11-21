@@ -57,6 +57,12 @@ def test_health(client):
     assert r.status_code == 200 and r.json()["ok"] is True
 
 
+def test_default_frontend_origin_allowed(client):
+    response = client.options("/api/videos/upload", headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "POST"})
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
 def test_demo_accounts_listed(client):
     d = client.get("/api/auth/demo").json()
     assert d["enabled"] and {a["email"] for a in d["accounts"]} == {"demo@contexttrace.app", "admin@contexttrace.app"}
@@ -73,6 +79,11 @@ def test_wrong_password_rejected(client):
 
 def test_jobs_require_auth(client):
     assert client.get("/api/jobs").status_code == 401
+
+
+def test_invalid_sampling_mode_rejected(client, auth):
+    response = client.post("/api/jobs/detect", params={"videoId": "missing", "inferenceMode": "invalid"}, headers=auth)
+    assert response.status_code == 422
 
 
 def test_rejects_non_video_upload(client, auth, tmp_path):
@@ -139,13 +150,16 @@ def _wait(client, auth, job):
 
 
 @pytest.mark.skipif(not MODELS_READY, reason="models not trained")
-def test_detect_job_end_to_end(client, auth, clip):
+@pytest.mark.parametrize("inference_mode", ["full", "light"])
+def test_detect_job_end_to_end(client, auth, clip, inference_mode):
     with clip.open("rb") as fh:
         vid = client.post("/api/videos/upload", headers=auth, files={"file": ("clip.mp4", fh, "video/mp4")}, data={"type": "detect"}).json()["videoId"]
-    job = client.post(f"/api/jobs/detect?videoId={vid}", headers=auth).json()["jobId"]
+    job = client.post(f"/api/jobs/detect?videoId={vid}&inferenceMode={inference_mode}", headers=auth).json()["jobId"]
     assert _wait(client, auth, job)["status"] == "COMPLETED"
     res = client.get(f"/api/jobs/{job}/report", headers=auth).json()["result"]
     assert 0 <= res["aiProbability"] <= 100 and 0 <= res["aiContentShare"] <= 100 and res["timeline"]
+    assert res["inferenceMode"] == inference_mode
+    assert res["media"]["framesAnalysed"] == (8 if inference_mode == "light" else 16)
     pdf = client.get(f"/api/jobs/{job}/report/download?format=pdf", headers=auth)
     assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
 
